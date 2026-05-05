@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Run the unit-test suite continuously on file changes.
+# Falls back to a single `cargo test` if cargo-watch is not installed.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if command -v cargo-watch >/dev/null 2>&1; then
+  exec cargo watch -q -w crates -x 'test --workspace --all-features'
+else
+  exec cargo test --workspace --all-features
+fi

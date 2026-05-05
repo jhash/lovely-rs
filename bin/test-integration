@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run the Docker-gated integration suite (the #[ignore]-marked tests).
+# Requires Docker daemon running.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if ! docker info >/dev/null 2>&1; then
+  echo "!! Docker daemon not reachable. Open Docker Desktop or start the daemon." >&2
+  exit 1
+fi
+
+exec cargo test --workspace --all-features -- --ignored

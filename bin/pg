@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Boot the dev Postgres container, or `start` it if already created.
+# Idempotent: safe to run repeatedly.
+
+set -euo pipefail
+
+CONTAINER="${LOVELY_PG_CONTAINER:-lovely-pg}"
+PORT="${LOVELY_PG_PORT:-5432}"
+USER="${LOVELY_PG_USER:-lovely}"
+PASSWORD="${LOVELY_PG_PASSWORD:-lovely}"
+DB="${LOVELY_PG_DB:-lovely}"
+IMAGE="${LOVELY_PG_IMAGE:-postgres:17}"
+
+if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  STATUS=$(docker inspect -f '{{.State.Status}}' "$CONTAINER")
+  if [ "$STATUS" = "running" ]; then
+    echo "==> $CONTAINER already running on port $PORT"
+  else
+    echo "==> Starting existing $CONTAINER"
+    docker start "$CONTAINER" >/dev/null
+  fi
+else
+  echo "==> Creating $CONTAINER ($IMAGE) on port $PORT"
+  docker run -d \
+    --name "$CONTAINER" \
+    -p "${PORT}:5432" \
+    -e "POSTGRES_USER=$USER" \
+    -e "POSTGRES_PASSWORD=$PASSWORD" \
+    -e "POSTGRES_DB=$DB" \
+    "$IMAGE" >/dev/null
+fi
+
+echo "==> Waiting for Postgres to accept connections..."
+for i in $(seq 1 30); do
+  if docker exec "$CONTAINER" pg_isready -U "$USER" -d "$DB" >/dev/null 2>&1; then
+    echo "==> Ready: postgres://$USER:***@localhost:$PORT/$DB"
+    exec docker logs -f "$CONTAINER"
+  fi
+  sleep 0.5
+done
+echo "!! Postgres did not become ready in 15s" >&2
+exit 1

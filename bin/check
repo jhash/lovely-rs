@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Quick local CI-equivalent: fmt + clippy + test. Run before committing.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "==> cargo fmt --check"
+cargo fmt --all -- --check
+
+echo "==> cargo clippy"
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+echo "==> cargo test"
+cargo test --workspace --all-features
+
+echo "==> All green."

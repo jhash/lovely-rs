@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run the criterion benchmark suite for lovely-tree against the saved
+# 'initial' baseline. >10% regression should be reviewed before merging.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+exec cargo bench -p lovely-tree --features render -- --baseline initial "$@"

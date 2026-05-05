@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Run lovely-server with auto-reload via cargo-watch (if installed) or
+# falling back to plain `cargo run`. Loads .env if present.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
+# Sensible dev defaults if not set externally:
+: "${LOVELY_DATABASE_URL:=postgres://lovely:lovely@localhost:5432/lovely}"
+: "${LOVELY_BIND:=0.0.0.0:8080}"
+: "${LOVELY_BASE_URL:=http://localhost:8080}"
+: "${LOVELY_LOG_LEVEL:=info,sqlx::query=warn}"
+
+# Generate an ephemeral secret if not provided.
+: "${LOVELY_SESSION_SECRET:=$(openssl rand -hex 32)}"
+
+export LOVELY_DATABASE_URL LOVELY_BIND LOVELY_BASE_URL LOVELY_LOG_LEVEL LOVELY_SESSION_SECRET
+
+if command -v cargo-watch >/dev/null 2>&1; then
+  exec cargo watch -q -w crates -w migrations -w static \
+    -x 'run -p lovely-server'
+else
+  echo "==> Tip: install cargo-watch for auto-reload (\`cargo install cargo-watch\`)"
+  exec cargo run -p lovely-server
+fi

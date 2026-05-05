@@ -22,17 +22,29 @@ What's not yet wired up: GitHub/Google/Apple OAuth handlers, TOTP enrollment/ver
 
 ## Run locally
 
+The fastest path is the `bin/` scripts:
+
 ```sh
-# Boot Postgres (one time):
+./bin/pg              # boot or start the dev Postgres container, tail logs
+./bin/server          # run lovely-server (auto-reloads if cargo-watch installed)
+./bin/test            # run unit tests; auto-reruns on file changes
+./bin/test-integration  # run Docker-gated integration suite (requires Docker)
+./bin/bench           # criterion benchmarks against the saved baseline
+./bin/check           # local CI: fmt + clippy + test
+./bin/psql            # psql shell against the dev DB
+./bin/pg-stop         # stop and remove the dev Postgres container
+```
+
+Or open the **lovely-rs** Warp launch configuration (Command Palette → "Launch Configurations") to spawn 5 tabs (pg, server, test, shell, git) all at once.
+
+Manual equivalent:
+
+```sh
 docker run -d --name lovely-pg -p 5432:5432 \
     -e POSTGRES_USER=lovely -e POSTGRES_PASSWORD=lovely -e POSTGRES_DB=lovely \
     postgres:17
-
-# Set required env vars:
 export LOVELY_DATABASE_URL=postgres://lovely:lovely@localhost:5432/lovely
 export LOVELY_SESSION_SECRET=$(openssl rand -hex 32)
-
-# Run:
 cargo run -p lovely-server
 ```
 

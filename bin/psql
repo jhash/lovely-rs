@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Drop into a psql shell against the dev Postgres container.
+
+set -euo pipefail
+
+CONTAINER="${LOVELY_PG_CONTAINER:-lovely-pg}"
+USER="${LOVELY_PG_USER:-lovely}"
+DB="${LOVELY_PG_DB:-lovely}"
+
+exec docker exec -it "$CONTAINER" psql -U "$USER" -d "$DB" "$@"
