@@ -1,5 +1,5 @@
 use crate::views::{shell, ShellCtx};
-use lovely_db::{App, Page, User};
+use lovely_db::{App, Collection, Page, User};
 use maud::{html, Markup};
 
 pub fn apps_index(user: &User, apps: &[App], csrf_token: &str) -> Markup {
@@ -69,21 +69,68 @@ pub fn apps_new(user: &User, csrf_token: &str, error: Option<&str>) -> Markup {
     )
 }
 
-pub fn app_dashboard(user: &User, app: &App, pages: &[Page], csrf_token: &str) -> Markup {
+/// Dashboard = pages summary + data summary, nothing else. App-level
+/// rename/theme/delete live on /apps/{slug}/settings.
+pub fn app_dashboard(
+    user: &User,
+    app: &App,
+    pages: &[Page],
+    collections: &[Collection],
+    csrf_token: &str,
+) -> Markup {
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / " (app.name)
+            " "
+            a href={"/apps/" (app.slug) "/settings"} .muted { "(settings)" }
         }
-        div .page-header {
-            h1 { (app.name) }
-            div .header-actions {
-                a href={"/apps/" (app.slug) "/pages/new"} .button { "New page" }
-                a href={"/apps/" (app.slug) "/data"} .button { "Data" }
-            }
-        }
+        h1 { (app.name) }
         @if let Some(d) = &app.description { p .muted { (d) } }
-        section {
-            h2 { "Pages" }
+
+        (pages_summary_section(user, app, pages))
+        (data_summary_section(app, collections))
+    };
+    shell(
+        ShellCtx {
+            title: &app.name,
+            description: app.description.as_deref(),
+            user: Some(user),
+            csrf_token,
+        },
+        body,
+    )
+}
+
+/// /apps/{slug}/pages — same Pages list as the dashboard, on its own
+/// page (parity with /data).
+pub fn app_pages_index(user: &User, app: &App, pages: &[Page], csrf_token: &str) -> Markup {
+    let body = html! {
+        nav .breadcrumbs {
+            a href="/apps" { "Apps" } " / "
+            a href={"/apps/" (app.slug)} { (app.name) } " / Pages"
+        }
+        (pages_summary_section(user, app, pages))
+    };
+    shell(
+        ShellCtx {
+            title: &format!("Pages — {}", app.name),
+            description: None,
+            user: Some(user),
+            csrf_token,
+        },
+        body,
+    )
+}
+
+fn pages_summary_section(user: &User, app: &App, pages: &[Page]) -> Markup {
+    html! {
+        section .summary-section {
+            div .section-header {
+                h2 {
+                    a href={"/apps/" (app.slug) "/pages"} { "Pages" }
+                }
+                a href={"/apps/" (app.slug) "/pages/new"} .button { "New page" }
+            }
             @if pages.is_empty() {
                 p .muted { "No pages yet." }
             } @else {
@@ -108,8 +155,48 @@ pub fn app_dashboard(user: &User, app: &App, pages: &[Page], csrf_token: &str) -
                 }
             }
         }
+    }
+}
+
+fn data_summary_section(app: &App, collections: &[Collection]) -> Markup {
+    html! {
+        section .summary-section {
+            div .section-header {
+                h2 {
+                    a href={"/apps/" (app.slug) "/data"} { "Data" }
+                }
+                a href={"/apps/" (app.slug) "/data#new"} .button { "New collection" }
+            }
+            @if collections.is_empty() {
+                p .muted { "No collections yet." }
+            } @else {
+                ul .page-list {
+                    @for c in collections {
+                        li {
+                            a href={"/apps/" (app.slug) "/data/" (c.name)} {
+                                code { (c.name) }
+                            }
+                            " "
+                            span .muted { "(" (c.fields().join(", ")) ")" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// /apps/{slug}/settings — rename, delete, theme.
+pub fn app_settings(user: &User, app: &App, csrf_token: &str) -> Markup {
+    let body = html! {
+        nav .breadcrumbs {
+            a href="/apps" { "Apps" } " / "
+            a href={"/apps/" (app.slug)} { (app.name) } " / Settings"
+        }
+        h1 { "Settings — " (app.name) }
+
         section .app-settings {
-            h2 { "App settings" }
+            h2 { "Identity" }
             form method="post" action={"/apps/" (app.slug) "/rename"} .auth-form {
                 input type="hidden" name="_csrf" value=(csrf_token);
                 label {
@@ -128,15 +215,8 @@ pub fn app_dashboard(user: &User, app: &App, pages: &[Page], csrf_token: &str) -
                 }
                 button type="submit" { "Save" }
             }
-            @if !app.is_default {
-                form method="post" action={"/apps/" (app.slug) "/delete"}
-                     .delete-form
-                     onsubmit="return confirm('Delete this app and all its pages?')" {
-                    input type="hidden" name="_csrf" value=(csrf_token);
-                    button type="submit" .danger { "Delete app" }
-                }
-            }
         }
+
         section .app-settings {
             h2 { "Theme" }
             p .muted { "Variables become CSS custom properties on every public page in this app: --lovely-primary, --lovely-background, --lovely-ink, --lovely-font." }
@@ -163,11 +243,23 @@ pub fn app_dashboard(user: &User, app: &App, pages: &[Page], csrf_token: &str) -
                 button type="submit" { "Save theme" }
             }
         }
+
+        @if !app.is_default {
+            section .app-settings {
+                h2 { "Danger zone" }
+                form method="post" action={"/apps/" (app.slug) "/delete"}
+                     .delete-form
+                     onsubmit="return confirm('Delete this app and all its pages?')" {
+                    input type="hidden" name="_csrf" value=(csrf_token);
+                    button type="submit" .danger { "Delete app" }
+                }
+            }
+        }
     };
     shell(
         ShellCtx {
-            title: &app.name,
-            description: app.description.as_deref(),
+            title: &format!("Settings — {}", app.name),
+            description: None,
             user: Some(user),
             csrf_token,
         },

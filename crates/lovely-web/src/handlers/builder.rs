@@ -100,6 +100,8 @@ pub async fn get_inspector_fragment(
 #[derive(Deserialize, Default)]
 pub struct PatchElementForm {
     #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
     pub text: Option<String>,
     #[serde(default)]
     pub attr_name: Option<String>,
@@ -154,6 +156,18 @@ pub async fn patch_element(
     }
 
     let mut patch = ElementPatch::default();
+
+    // Tag change. We accept anything in the ElementTag whitelist
+    // (including the inline #text node). Existing text/attrs/children
+    // are preserved — the renderer special-cases #text so attrs/children
+    // simply stop showing up on a switch to #text but reappear on
+    // switch back.
+    if let Some(t) = form.tag.as_deref().filter(|s| !s.is_empty()) {
+        if lovely_tree::ElementTag::from_name(t).is_none() {
+            return Err(WebError::Unprocessable(format!("unknown tag: {t}")));
+        }
+        patch.tag = Some(t.to_string());
+    }
 
     // Apply attr update if present. Validate name through AttrName so we
     // pick up the on*/hx-* denylist for free.
@@ -253,7 +267,7 @@ pub async fn patch_element(
         patch.attrs = Some(serde_json::Value::Object(merged));
     }
 
-    if patch.attrs.is_some() || patch.payload.is_some() {
+    if patch.tag.is_some() || patch.attrs.is_some() || patch.payload.is_some() {
         lovely_db::update_element(&state.pg, element_id, patch).await?;
         lovely_db::snapshot_page(&state.pg, page.id).await?;
     }

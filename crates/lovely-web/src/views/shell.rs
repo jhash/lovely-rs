@@ -29,7 +29,7 @@ pub fn builder_shell(ctx: ShellCtx<'_>, body: Markup) -> Markup {
         html lang="en" {
             (head_common(&ctx))
             body class="builder" {
-                (top_nav(ctx.user))
+                (top_nav_full(ctx.user))
                 (body)
             }
         }
@@ -91,23 +91,43 @@ fn head_common(ctx: &ShellCtx<'_>) -> Markup {
     }
 }
 
+/// Default top nav — clamped to the same `.container` width as page
+/// content (max-width 70rem, centered).
 fn top_nav(user: Option<&User>) -> Markup {
     html! {
         nav .top-nav {
             div .container {
-                a .brand href="/" { "lovely" }
-                div .spacer {}
-                @if let Some(u) = user {
-                    a href="/apps" { "Apps" }
-                    a href={"/" (u.username)} { "/" (u.username) }
-                    form method="post" action="/auth/logout" .inline-form {
-                        button type="submit" { "Sign out (" (u.username) ")" }
-                    }
-                } @else {
-                    a href="/auth/login" { "Sign in" }
-                    a href="/auth/register" { "Register" }
-                }
+                (top_nav_inner(user))
             }
+        }
+    }
+}
+
+/// Full-width variant for the builder. Same links + brand, just no
+/// max-width clamp on the inner container so the bar stretches.
+fn top_nav_full(user: Option<&User>) -> Markup {
+    html! {
+        nav .top-nav .top-nav-fullwidth {
+            div .container .fullwidth {
+                (top_nav_inner(user))
+            }
+        }
+    }
+}
+
+fn top_nav_inner(user: Option<&User>) -> Markup {
+    html! {
+        a .brand href="/" { "lovely" }
+        div .spacer {}
+        @if let Some(u) = user {
+            a href="/apps" { "Apps" }
+            a href={"/" (u.username)} { "/" (u.username) }
+            form method="post" action="/auth/logout" .inline-form {
+                button type="submit" { "Sign out (" (u.username) ")" }
+            }
+        } @else {
+            a href="/auth/login" { "Sign in" }
+            a href="/auth/register" { "Register" }
         }
     }
 }

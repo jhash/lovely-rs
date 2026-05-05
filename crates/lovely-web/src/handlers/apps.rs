@@ -34,8 +34,39 @@ pub async fn get_app_dashboard(
         .await?
         .ok_or(WebError::NotFound)?;
     let pages = list_pages_in_app(&state.pg, app.id).await?;
+    let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::app_dashboard(&user, &app, &pages, &token).into_string();
+    let html =
+        apps_views::app_dashboard(&user, &app, &pages, &collections, &token).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
+}
+
+pub async fn get_app_pages(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let pages = list_pages_in_app(&state.pg, app.id).await?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = apps_views::app_pages_index(&user, &app, &pages, &token).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
+}
+
+pub async fn get_app_settings(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = apps_views::app_settings(&user, &app, &token).into_string();
     Ok((jar, axum::response::Html(html)).into_response())
 }
 

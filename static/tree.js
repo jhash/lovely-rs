@@ -48,6 +48,22 @@
     if (p) p.remove();
   });
 
+  // ---- Builder tree selection highlight ----
+  // Click a tree row → mark its <li> aria-current and clear the previous
+  // one immediately. htmx still swaps the inspector via the row's hx-get;
+  // this is just instant local feedback so the magenta stripe never
+  // lags behind a roundtrip.
+  document.addEventListener("click", function (e) {
+    var btn = e.target && e.target.closest && e.target.closest(".tree-row-button");
+    if (!btn) return;
+    var tree = document.getElementById("tree");
+    if (!tree) return;
+    var prev = tree.querySelectorAll('li[aria-current="true"]');
+    for (var i = 0; i < prev.length; i++) prev[i].removeAttribute("aria-current");
+    var li = btn.closest("li");
+    if (li) li.setAttribute("aria-current", "true");
+  });
+
   // ---- Builder live preview ----
   // PATCH/MOVE responses include `HX-Trigger: preview-stale`. htmx
   // dispatches that as a plain event; we listen and reload the iframe

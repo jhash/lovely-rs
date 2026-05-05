@@ -95,6 +95,8 @@ nav.top-nav .container {
   white-space: nowrap;
   overflow: hidden;
 }
+nav.top-nav .container.fullwidth { max-width: none; margin: 0; }
+nav.top-nav.top-nav-fullwidth { border-bottom: 1px solid var(--soft-border); }
 nav.top-nav .brand {
   font-weight: 700;
   text-decoration: none;
@@ -253,6 +255,17 @@ code, pre { font-family: var(--font-mono); }
   padding-top: var(--space-4);
   border-top: 1px solid var(--soft-border);
 }
+.summary-section { margin: var(--space-6) 0; }
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.section-header h2 { margin: 0; }
+.section-header h2 a { text-decoration: none; }
+.section-header h2 a:hover { color: var(--accent); }
 .lead { color: var(--muted-ink); font-size: 1.1rem; margin-bottom: var(--space-4); }
 
 /* Breadcrumbs */
@@ -428,7 +441,6 @@ body.builder .builder-topbar {
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-3);
-  border-top: 1px solid var(--soft-border);
   border-bottom: 1px solid var(--soft-border);
   font-size: 0.8rem;
 }

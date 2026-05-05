@@ -241,6 +241,7 @@ fn tree_node(
             div .tree-row {
                 button .tree-row-button
                     type="button"
+                    data-sel-id=(id)
                     hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}",
                         ctx.app.slug, edit_segment, id))
                     hx-target="#inspector"
@@ -333,7 +334,6 @@ fn sibling_action_form(
                     option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
                 }
             }
-            input type="text" name="text" placeholder="text (optional)";
             button type="submit" { (label) }
         }
     }
@@ -358,7 +358,6 @@ fn child_action_form(
                     option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
                 }
             }
-            input type="text" name="text" placeholder="text (optional)";
             button type="submit" { (label) }
         }
     }
@@ -406,7 +405,19 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
     html! {
         @if let Some(row) = row {
             header .inspector-header {
-                code { (row.tag) }
+                form
+                    hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
+                        ctx.app.slug, edit_segment, row.id))
+                    hx-swap="none"
+                    .inspector-tag-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    select name="tag" onchange="this.form.requestSubmit()" {
+                        @for tag in ElementTag::ALL {
+                            option value=(tag.name())
+                                selected[tag.name() == row.tag] { (tag.name()) }
+                        }
+                    }
+                }
                 @if ctx.page.root_element == Some(row.id.into_inner()) {
                     " " span .pill { "root" }
                 }
@@ -451,9 +462,16 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
 fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let is_root = ctx.page.root_element == Some(row.id.into_inner());
+    let is_text = row.tag == "#text";
     html! {
         div .inspector-add {
             h3 { "Add element" }
+            p .muted {
+                "Inline text is its own #text element. "
+                "Pick #text from the tag list or use the quick "
+                strong { "T" }
+                " button."
+            }
             form
                 hx-post=(format!("/apps/{}/pages/{}/elements",
                     ctx.app.slug, edit_segment))
@@ -470,12 +488,10 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                         }
                     }
                 }
-                label {
-                    "Text content (optional)"
-                    input type="text" name="text";
-                }
                 div .inspector-add-buttons {
-                    button type="submit" { "Add child" }
+                    @if !is_text {
+                        button type="submit" { "Add child" }
+                    }
                     @if !is_root {
                         button type="submit"
                             formaction=(format!("/apps/{}/pages/{}/elements/{}/add-before",
@@ -487,6 +503,23 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                                 ctx.app.slug, edit_segment, row.id))
                             hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
                                 ctx.app.slug, edit_segment, row.id)) { "Add after" }
+                    }
+                }
+            }
+            @if !is_text {
+                div .inspector-add-text-quick {
+                    form
+                        hx-post=(format!("/apps/{}/pages/{}/elements",
+                            ctx.app.slug, edit_segment))
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="parent_id" value=(row.id);
+                        input type="hidden" name="tag" value="#text";
+                        button type="submit" title="Add an inline #text child" {
+                            span .tree-text-glyph { "T" }
+                            " Add text child"
+                        }
                     }
                 }
             }
@@ -505,18 +538,31 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         Some((c, f)) => (c, f),
         None => (bind, ""),
     };
+    let is_text = row.tag == "#text";
     html! {
-        form
-            hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
-                ctx.app.slug, edit_segment, row.id))
-            hx-swap="none"
-            .inspector-form {
-            input type="hidden" name="_csrf" value=(ctx.csrf_token);
-            label {
-                "Text content"
-                input type="text" name="text" value=(row.text.clone().unwrap_or_default());
+        @if is_text {
+            form
+                hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
+                    ctx.app.slug, edit_segment, row.id))
+                hx-swap="none"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Text content"
+                    textarea name="text" rows="3" autofocus { (row.text.clone().unwrap_or_default()) }
+                }
+                button type="submit" { "Save" }
             }
-            button type="submit" { "Save" }
+        } @else {
+            p .muted {
+                "Text content lives on its own "
+                code { "#text" }
+                " child element so you can mix inline elements (links, "
+                code { "strong" }
+                ", etc.) into a paragraph. Use "
+                strong { "Add text child" }
+                " below."
+            }
         }
         @if !ctx.collections.is_empty() {
             div .data-binding {
