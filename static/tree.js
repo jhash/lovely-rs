@@ -47,4 +47,88 @@
     var p = document.getElementById("preview-" + id);
     if (p) p.remove();
   });
+
+  // ---- Builder live preview ----
+  // PATCH/MOVE responses include `HX-Trigger: preview-stale`. htmx
+  // dispatches that as a plain event; we listen and reload the iframe
+  // so the user sees their change without a full editor reload.
+  document.addEventListener("preview-stale", function () {
+    var ifr = document.getElementById("preview");
+    if (ifr && ifr.contentWindow) {
+      ifr.contentWindow.location.reload();
+    }
+  });
+
+  // ---- Builder tree drag & drop (Sortable.js) ----
+  function moveUrl(elementId) {
+    // The edit page URL is /apps/{app}/pages/{page}/edit; the move URL
+    // is the same prefix + /elements/{id}/move.
+    var path = window.location.pathname;
+    var m = path.match(/^(\/apps\/[^/]+\/pages\/[^/]+)\/edit/);
+    if (!m) return null;
+    return m[1] + "/elements/" + elementId + "/move";
+  }
+
+  function postMove(elementId, parentId, prevSiblingId) {
+    var url = moveUrl(elementId);
+    if (!url) return;
+    var token = readCookie("csrf_token") || "";
+    var body = new URLSearchParams();
+    body.set("parent_id", parentId);
+    body.set("prev_sibling", prevSiblingId || "");
+    body.set("_csrf", token);
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRF-Token": token,
+      },
+      body: body.toString(),
+    }).then(function (r) {
+      if (!r.ok) {
+        console.warn("move failed", r.status);
+        return;
+      }
+      // Re-trigger preview and refresh tree from server (single source).
+      document.dispatchEvent(new CustomEvent("preview-stale"));
+      if (window.htmx) {
+        var t = document.getElementById("tree");
+        if (t) window.htmx.trigger(t, "preview-stale");
+      }
+    });
+  }
+
+  function wireSortable(root) {
+    if (!window.Sortable) return;
+    var lists = root.querySelectorAll(".tree-children, .tree-root");
+    lists.forEach(function (ul) {
+      if (ul._sortable) return;
+      ul._sortable = new window.Sortable(ul, {
+        group: "lovely-tree",
+        animation: 120,
+        fallbackOnBody: true,
+        invertSwap: true,
+        ghostClass: "sortable-ghost",
+        chosenClass: "sortable-chosen",
+        onEnd: function (evt) {
+          var li = evt.item;
+          var elementId = li.getAttribute("data-element-id");
+          var parentUl = li.parentElement;
+          var parentId = parentUl && parentUl.getAttribute("data-parent-id");
+          if (!elementId || !parentId) return;
+          var prev = li.previousElementSibling;
+          var prevId = prev ? prev.getAttribute("data-element-id") : null;
+          postMove(elementId, parentId, prevId);
+        },
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var tree = document.getElementById("tree");
+    if (tree) wireSortable(tree);
+  });
+  document.addEventListener("htmx:afterSwap", function (e) {
+    if (e.target && e.target.id === "tree") wireSortable(e.target);
+  });
 })();

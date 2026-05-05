@@ -13,9 +13,6 @@ pub async fn get_apps_index(
     jar: CookieJar,
 ) -> Result<Response, WebError> {
     let apps = list_apps_by_owner(&state.pg, user.id).await?;
-    if apps.len() == 1 {
-        return Ok(Redirect::to(&format!("/apps/{}", apps[0].slug)).into_response());
-    }
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     let html = apps_views::apps_index(&user, &apps, &token).into_string();
     Ok((jar, axum::response::Html(html)).into_response())

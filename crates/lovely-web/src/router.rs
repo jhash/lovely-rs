@@ -1,6 +1,6 @@
 use crate::handlers;
 use crate::state::AppState;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -34,6 +34,26 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/apps/{app_slug}/pages/{page_slug}/edit",
             get(handlers::pages::get_page_edit),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/preview",
+            get(handlers::pages::get_page_preview),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/tree",
+            get(handlers::builder::get_tree_fragment),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/inspector",
+            get(handlers::builder::get_inspector_fragment),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}",
+            patch(handlers::builder::patch_element),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/move",
+            post(handlers::builder::post_move_element),
         )
         .route(
             "/apps/{app_slug}/pages/{page_slug}",

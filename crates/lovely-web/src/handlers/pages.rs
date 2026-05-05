@@ -1,8 +1,11 @@
 use crate::auth::{csrf, AuthUser, MaybeUser};
 use crate::state::AppState;
+use crate::views::builder::{
+    builder, BuilderCtx, InspectorTab, Selection,
+};
 use crate::views::pages as pages_views;
 use crate::WebError;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Form;
@@ -13,6 +16,14 @@ use lovely_db::{
 };
 use lovely_tree::{ElementTag, Tree};
 use serde::Deserialize;
+
+#[derive(Deserialize, Default)]
+pub struct EditQuery {
+    #[serde(default)]
+    pub sel: Option<String>,
+    #[serde(default)]
+    pub tab: Option<String>,
+}
 
 pub async fn get_pages_new(
     State(state): State<AppState>,
@@ -117,6 +128,7 @@ pub async fn get_page_edit(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path((app_slug, page_slug)): Path<(String, String)>,
+    Query(q): Query<EditQuery>,
     jar: CookieJar,
 ) -> Result<Response, WebError> {
     let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
@@ -127,11 +139,54 @@ pub async fn get_page_edit(
         .await?
         .ok_or(WebError::NotFound)?;
     let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
-    let tree = Tree::from_db_rows(&rows)?;
-    let preview = tree.render();
+    let root = page.root_element.unwrap_or_default();
+    let selection = Selection::from_query(q.sel.as_deref(), root);
+    let tab = InspectorTab::from_query(q.tab.as_deref());
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = pages_views::page_edit(&user, &app, &page, &rows, preview, &token).into_string();
+    let html = builder(BuilderCtx {
+        user: &user,
+        app: &app,
+        page: &page,
+        elements: &rows,
+        selection,
+        tab,
+        csrf_token: &token,
+    })
+    .into_string();
     Ok((jar, axum::response::Html(html)).into_response())
+}
+
+pub async fn get_page_preview(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug)): Path<(String, String)>,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let real_slug = decode_slug_segment(&page_slug);
+    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let tree = Tree::from_db_rows(&rows)?;
+    let rendered = tree.render();
+    // Minimal owner-only render. No editor chrome, draft visible. The
+    // user's CSS lives inside the iframe, so it can't fight ours.
+    let html = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title>\
+         <link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>{}</body></html>",
+        html_escape(&page.title),
+        rendered.into_string()
+    );
+    Ok(axum::response::Html(html).into_response())
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 pub async fn get_public_user_root(
@@ -160,7 +215,7 @@ async fn render_public(
     slug: &str,
     jar: CookieJar,
 ) -> Result<Response, WebError> {
-    let Some((_owner, app)) = find_default_app_for_username(&state.pg, username).await? else {
+    let Some((owner, app)) = find_default_app_for_username(&state.pg, username).await? else {
         return Err(WebError::NotFound);
     };
     let page = find_page_by_app_and_slug(&state.pg, app.id, slug)
@@ -170,7 +225,15 @@ async fn render_public(
     let tree = Tree::from_db_rows(&rows)?;
     let rendered = tree.render();
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = pages_views::published_page(viewer.as_ref(), &page, rendered, &token).into_string();
+    let html = pages_views::published_page(
+        viewer.as_ref(),
+        owner.id,
+        &app.slug,
+        &page,
+        rendered,
+        &token,
+    )
+    .into_string();
     Ok((jar, axum::response::Html(html)).into_response())
 }
 
