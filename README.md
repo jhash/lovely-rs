@@ -37,13 +37,17 @@ The fastest path is the `bin/` scripts:
 
 Or open the **lovely-rs** Warp launch configuration (Command Palette → "Launch Configurations") to spawn 5 tabs (pg, server, test, shell, git) all at once.
 
-Manual equivalent:
+### Postgres setup
+
+Local dev uses **Homebrew Postgres** (`postgresql@17`) with a dedicated `lovely_rs` role and database — separate from any pre-existing `lovely` database (e.g. the Swift Vapor app's). `./bin/pg` creates the role/db idempotently on first run.
+
+Manual equivalent (only needed if not using `./bin/pg`):
 
 ```sh
-docker run -d --name lovely-pg -p 5432:5432 \
-    -e POSTGRES_USER=lovely -e POSTGRES_PASSWORD=lovely -e POSTGRES_DB=lovely \
-    postgres:17
-export LOVELY_DATABASE_URL=postgres://lovely:lovely@localhost:5432/lovely
+brew services start postgresql@17
+psql postgres -c "CREATE ROLE lovely_rs LOGIN PASSWORD 'lovely_rs' SUPERUSER"
+psql postgres -c "CREATE DATABASE lovely_rs OWNER lovely_rs"
+export LOVELY_DATABASE_URL=postgres://lovely_rs:lovely_rs@localhost:5432/lovely_rs
 export LOVELY_SESSION_SECRET=$(openssl rand -hex 32)
 cargo run -p lovely-server
 ```

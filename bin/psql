@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Drop into a psql shell against the dev Postgres container.
+# Drop into a psql shell against the dev database via local socket.
 
 set -euo pipefail
 
-CONTAINER="${LOVELY_PG_CONTAINER:-lovely-pg}"
-USER="${LOVELY_PG_USER:-lovely}"
-DB="${LOVELY_PG_DB:-lovely}"
+ROLE="${LOVELY_PG_ROLE:-lovely_rs}"
+DB="${LOVELY_PG_DB:-lovely_rs}"
 
-exec docker exec -it "$CONTAINER" psql -U "$USER" -d "$DB" "$@"
+exec psql -U "$ROLE" -d "$DB" -h localhost "$@"

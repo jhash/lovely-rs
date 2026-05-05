@@ -14,7 +14,7 @@ if [ -f .env ]; then
 fi
 
 # Sensible dev defaults if not set externally:
-: "${LOVELY_DATABASE_URL:=postgres://lovely:lovely@localhost:5432/lovely}"
+: "${LOVELY_DATABASE_URL:=postgres://lovely_rs:lovely_rs@localhost:5432/lovely_rs}"
 : "${LOVELY_BIND:=0.0.0.0:8080}"
 : "${LOVELY_BASE_URL:=http://localhost:8080}"
 : "${LOVELY_LOG_LEVEL:=info,sqlx::query=warn}"

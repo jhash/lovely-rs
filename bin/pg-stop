@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Stop and remove the dev Postgres container. Volumes are NOT preserved
-# (the container is created without an external volume), so this also
-# wipes the dev DB. For persistent data, mount a volume in `bin/pg`.
+# Stop the Homebrew Postgres service. Data is preserved on disk
+# (`/opt/homebrew/var/postgresql@17`) — `bin/pg` will pick it back up.
 
 set -euo pipefail
 
-CONTAINER="${LOVELY_PG_CONTAINER:-lovely-pg}"
+SERVICE="${LOVELY_PG_SERVICE:-postgresql@17}"
 
-if docker inspect "$CONTAINER" >/dev/null 2>&1; then
-  echo "==> Stopping $CONTAINER"
-  docker stop "$CONTAINER" >/dev/null
-  echo "==> Removing $CONTAINER"
-  docker rm "$CONTAINER" >/dev/null
-else
-  echo "==> $CONTAINER not present"
-fi
+echo "==> Stopping $SERVICE"
+brew services stop "$SERVICE"
