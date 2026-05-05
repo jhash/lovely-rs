@@ -13,6 +13,17 @@ Why we use it: pages, elements, sessions, users all have UUIDs. Without newtypes
 
 The `#[serde(transparent)]` makes the JSON form just a bare UUID string — the wrapper is invisible at the wire level, but visible at the API level.
 
+## Declarative macros (`macro_rules!`)
+**First seen:** `crates/lovely-tree/src/tags.rs::define_tags!`
+
+ELI5: a macro is a function that runs at compile time, taking *tokens* (pieces of source code) as input and producing more source code. `macro_rules!` is the simpler kind: pattern-match on token shape, expand to other tokens. No types, no logic — just text-shaped substitution with structure.
+
+We define `define_tags! { Div => "div", ... }` and the macro expands to: an enum, a `from_name` match, a `name` match, and a `const ALL: &[Self]` slice — all derived from one list. If we add `Footer => "footer"` to the macro call, all four pieces update automatically. No drift between the parser, the renderer, and the whitelist.
+
+The pattern `$( $variant:ident => $name:literal ),*` says "zero or more pairs separated by commas, each pair being an identifier and a literal." Inside the expansion, `$( ... )*` repeats the body once per matched pair.
+
+When the list grows past what `macro_rules!` can ergonomically express (declarative macros can't read trait impls or call functions), we'd graduate to a procedural macro in a sibling crate. We're nowhere near that.
+
 ## Generational keys (slotmap)
 **First seen:** `crates/lovely-tree/src/types.rs::NodeId`
 

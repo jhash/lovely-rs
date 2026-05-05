@@ -1,5 +1,7 @@
+pub mod tags;
 pub mod types;
 
+pub use tags::ElementTag;
 pub use types::{ElementUuid, NodeId};
 
 #[cfg(test)]
