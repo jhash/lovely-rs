@@ -23,3 +23,5 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
+lovely-test-support = { path = "../lovely-test-support" }
+anyhow = { workspace = true }
