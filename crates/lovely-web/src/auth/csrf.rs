@@ -36,7 +36,7 @@ fn hex_nibble(n: u8) -> char {
     }
 }
 
-pub fn ensure_cookie<'a>(jar: CookieJar, base_url: &str) -> (CookieJar, String) {
+pub fn ensure_cookie(jar: CookieJar, base_url: &str) -> (CookieJar, String) {
     if let Some(c) = jar.get(CSRF_COOKIE) {
         return (jar.clone(), c.value().to_string());
     }
