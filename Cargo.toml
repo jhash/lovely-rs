@@ -28,7 +28,7 @@ hyper = "1"
 
 maud = "0.27"
 
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "macros", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "macros", "migrate", "ipnetwork"] }
 
 oauth2 = "5"
 argon2 = "0.5"
