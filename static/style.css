@@ -215,3 +215,164 @@ tbody tr:hover { background: var(--hairline); }
 
 /* Code outside of articles */
 code, pre { font-family: var(--font-mono); }
+
+/* Utility */
+.muted { color: var(--muted-ink); }
+.lead { color: var(--muted-ink); font-size: 1.1rem; margin-bottom: var(--space-4); }
+
+/* Breadcrumbs */
+nav.breadcrumbs {
+  font-size: 0.9rem;
+  color: var(--muted-ink);
+  margin-bottom: var(--space-4);
+}
+nav.breadcrumbs a { text-decoration: none; }
+nav.breadcrumbs a:hover { text-decoration: underline; }
+
+/* Pills */
+.pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--soft-border);
+  color: var(--muted-ink);
+  background: var(--paper);
+  vertical-align: middle;
+}
+.pill-published {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pill-draft {
+  background: var(--hairline);
+}
+
+/* App + page lists */
+ul.app-list, ul.page-list, ul.element-list {
+  list-style: none;
+  padding: 0;
+}
+ul.app-list li, ul.page-list li {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+ul.app-list li:last-child, ul.page-list li:last-child {
+  border-bottom: 0;
+}
+
+/* Auth + generic block forms */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 28rem;
+}
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--muted-ink);
+}
+.auth-form label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.auth-form button[type="submit"] {
+  align-self: flex-start;
+}
+
+/* Inline forms (sit alongside other content) */
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  color: var(--muted-ink);
+}
+
+/* Delete + danger */
+.delete-form { margin-top: var(--space-4); }
+button.danger, .button.danger {
+  border-color: #b00020;
+  color: #b00020;
+}
+button.danger:hover, .button.danger:hover {
+  background: #b00020;
+  color: var(--paper);
+}
+
+/* Editor: 3-column grid */
+.edit-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr) minmax(20rem, 1.4fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+.edit-grid > section {
+  min-width: 0;
+}
+.edit-meta h1, .edit-elements h2, .edit-preview h2 {
+  margin-bottom: var(--space-3);
+}
+.edit-elements details {
+  border: 1px solid var(--soft-border);
+  border-radius: var(--radius-1);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.edit-elements details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.edit-elements details > summary::-webkit-details-marker { display: none; }
+.edit-elements details[open] {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.edit-elements code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--hairline);
+  padding: 1px 4px;
+  border-radius: var(--radius-1);
+}
+
+/* Preview frame */
+.preview-frame {
+  border: 1px dashed var(--soft-border);
+  border-radius: var(--radius-1);
+  padding: var(--space-4);
+  background: #fafafa;
+  min-height: 12rem;
+}
+
+/* Published page */
+.published-page {
+  max-width: 42rem;
+  margin: 0 auto;
+}
+.published-page h1 {
+  font-size: 2rem;
+  margin-bottom: var(--space-4);
+}
+
+/* Responsive: stack the editor on narrow screens */
+@media (max-width: 64rem) {
+  .edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
