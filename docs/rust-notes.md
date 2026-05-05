@@ -41,6 +41,15 @@ That `.into()` matters: if the called function returns `Err(InnerError)` and the
 
 ELI5: `String` always heap-allocates. `SmolStr` stores up to 23 bytes inline (no heap), and only spills to heap for longer values. Attribute names like `class`, `id`, `data-foo` all fit inline, so we save an allocation per attribute. Cheap win for a hot path.
 
+## Borrowing — `&self` vs `&mut self`
+**First seen:** `crates/lovely-tree/src/arena.rs::Tree`
+
+ELI5: a method that takes `&self` borrows the value *immutably* — many readers can hold an `&Tree` simultaneously. A method that takes `&mut self` borrows it *exclusively* — while you hold a `&mut Tree`, no other reference (mutable or immutable) to the same tree can exist. The compiler enforces this at compile time, no runtime cost.
+
+So `Tree::get(&self) -> Option<&Node>` says "I'll show you a node; many callers can read at once." `Tree::append_child(&mut self, ...)` says "I'm changing the tree; nobody else can touch it during this call." This is how Rust prevents data races *and* iterator-invalidation bugs (the kind that crashes when you `arr.push()` while iterating).
+
+The trade-off: returning `&Node` from `get` ties the reference's lifetime to the `&self` borrow. You can't hold an `&Node` and call `&mut self` methods on the tree at the same time. This is annoying at first and turns out to prevent a class of bugs we don't think about often (modifying a tree while reading a piece of it).
+
 ## Generational keys (slotmap)
 **First seen:** `crates/lovely-tree/src/types.rs::NodeId`
 
