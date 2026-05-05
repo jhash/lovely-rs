@@ -145,6 +145,59 @@
     if (tree) wireSortable(tree);
   });
 
+  // ---- Tree keyboard nav (↑/↓/Enter/Delete) ----
+  // Acts on the currently-selected (aria-current) tree row. Walks the
+  // visible row order so collapsing detail elements stays out of scope
+  // for now — the tree is fully expanded.
+  function visibleRows() {
+    var tree = document.getElementById("tree");
+    if (!tree) return [];
+    return Array.prototype.slice.call(
+      tree.querySelectorAll("li[data-element-id]")
+    );
+  }
+  function clickRow(li) {
+    var btn = li && li.querySelector(".tree-row-button");
+    if (btn) btn.click();
+  }
+  document.addEventListener("keydown", function (e) {
+    var path = window.location.pathname;
+    if (!/^\/apps\/[^/]+\/pages\/[^/]+\/edit/.test(path)) return;
+    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    var rows = visibleRows();
+    if (!rows.length) return;
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("aria-current") === "true") {
+        idx = i;
+        break;
+      }
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      var next = rows[Math.min(rows.length - 1, idx + 1)];
+      if (next) clickRow(next);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      var prev = rows[Math.max(0, idx - 1)];
+      if (prev) clickRow(prev);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      if (e.metaKey || e.ctrlKey || idx < 0) return;
+      var li = rows[idx];
+      if (!li) return;
+      // Trigger the per-row Delete button if available.
+      var actions = li.querySelector("details.tree-actions");
+      if (!actions) return;
+      var del = actions.querySelector(
+        'form[hx-post*="/delete"] button[type="submit"]'
+      );
+      if (del) {
+        e.preventDefault();
+        del.click();
+      }
+    }
+  });
+
   // Cmd-Z / Cmd-Shift-Z on the editor page → POST /undo or /redo
   document.addEventListener("keydown", function (e) {
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;

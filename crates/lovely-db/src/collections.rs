@@ -3,6 +3,86 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Field types a collection's columns can take. Mirrors the lovely
+/// Swift app's FieldType enum, plus a few HTML-friendly extras.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldType {
+    Text,
+    LongText,
+    Number,
+    Email,
+    Url,
+    Date,
+    DateTime,
+    Bool,
+    Address,
+}
+
+impl FieldType {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "text" => Self::Text,
+            "longtext" => Self::LongText,
+            "number" => Self::Number,
+            "email" => Self::Email,
+            "url" => Self::Url,
+            "date" => Self::Date,
+            "datetime" => Self::DateTime,
+            "bool" => Self::Bool,
+            "address" => Self::Address,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::LongText => "longtext",
+            Self::Number => "number",
+            Self::Email => "email",
+            Self::Url => "url",
+            Self::Date => "date",
+            Self::DateTime => "datetime",
+            Self::Bool => "bool",
+            Self::Address => "address",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Text => "Text",
+            Self::LongText => "Long text",
+            Self::Number => "Number",
+            Self::Email => "Email",
+            Self::Url => "URL",
+            Self::Date => "Date",
+            Self::DateTime => "Date & time",
+            Self::Bool => "True / False",
+            Self::Address => "Address",
+        }
+    }
+
+    pub const ALL: &'static [FieldType] = &[
+        FieldType::Text,
+        FieldType::LongText,
+        FieldType::Number,
+        FieldType::Email,
+        FieldType::Url,
+        FieldType::Date,
+        FieldType::DateTime,
+        FieldType::Bool,
+        FieldType::Address,
+    ];
+}
+
+/// One column in a collection's schema.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub field_type: FieldType,
+}
+
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct Collection {
     pub id: Uuid,
@@ -14,16 +94,60 @@ pub struct Collection {
 }
 
 impl Collection {
-    pub fn fields(&self) -> Vec<String> {
-        self.fields_json
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// Decode the schema list, accepting both legacy strings and the
+    /// new {name, type} object shape. Unknown types fall back to Text.
+    pub fn typed_fields(&self) -> Vec<Field> {
+        decode_fields(&self.fields_json)
     }
+
+    /// Legacy accessor — just the field names, in order. Kept so the
+    /// renderer/binding logic (which only needs names) doesn't need to
+    /// thread types through every layer.
+    pub fn fields(&self) -> Vec<String> {
+        self.typed_fields().into_iter().map(|f| f.name).collect()
+    }
+}
+
+pub fn decode_fields(json: &serde_json::Value) -> Vec<Field> {
+    let arr = match json.as_array() {
+        Some(a) => a,
+        None => return Vec::new(),
+    };
+    arr.iter()
+        .filter_map(|v| match v {
+            serde_json::Value::String(s) => Some(Field {
+                name: s.clone(),
+                field_type: FieldType::Text,
+            }),
+            serde_json::Value::Object(m) => {
+                let name = m.get("name").and_then(|v| v.as_str())?.to_string();
+                let ft = m
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .and_then(FieldType::from_str)
+                    .unwrap_or(FieldType::Text);
+                Some(Field {
+                    name,
+                    field_type: ft,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+pub fn encode_fields(fields: &[Field]) -> serde_json::Value {
+    serde_json::Value::Array(
+        fields
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "name": f.name,
+                    "type": f.field_type.as_str(),
+                })
+            })
+            .collect(),
+    )
 }
 
 #[derive(Clone, Debug, sqlx::FromRow)]
@@ -43,14 +167,9 @@ pub async fn create_collection(
     pool: &PgPool,
     app_id: Uuid,
     name: &str,
-    fields: &[String],
+    fields: &[Field],
 ) -> Result<Collection, DbError> {
-    let fields_json = serde_json::Value::Array(
-        fields
-            .iter()
-            .map(|s| serde_json::Value::String(s.clone()))
-            .collect(),
-    );
+    let fields_json = encode_fields(fields);
     let row = sqlx::query_as::<_, Collection>(&format!(
         "INSERT INTO collections (app_id, name, fields_json) \
          VALUES ($1, $2, $3) RETURNING {COLLECTION_COLUMNS}"
@@ -58,6 +177,23 @@ pub async fn create_collection(
     .bind(app_id)
     .bind(name)
     .bind(&fields_json)
+    .fetch_one(pool)
+    .await
+    .map_err(crate::users::map_unique_violation)?;
+    Ok(row)
+}
+
+pub async fn rename_collection(
+    pool: &PgPool,
+    id: Uuid,
+    new_name: &str,
+) -> Result<Collection, DbError> {
+    let row = sqlx::query_as::<_, Collection>(&format!(
+        "UPDATE collections SET name = $2, updated_at = now() WHERE id = $1 \
+         RETURNING {COLLECTION_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(new_name)
     .fetch_one(pool)
     .await
     .map_err(crate::users::map_unique_violation)?;
@@ -89,26 +225,33 @@ pub async fn find_collection_by_name(
     Ok(row)
 }
 
-/// Replace the ordered list of field names. Does NOT migrate existing
+/// Replace the ordered list of fields. Does NOT migrate existing
 /// records — call this only after handling record migration yourself
 /// (see `rename_field` and `delete_field`).
 pub async fn set_collection_fields(
     pool: &PgPool,
     id: Uuid,
-    fields: &[String],
+    fields: &[Field],
 ) -> Result<(), DbError> {
-    let json = serde_json::Value::Array(
-        fields
-            .iter()
-            .map(|s| serde_json::Value::String(s.clone()))
-            .collect(),
-    );
+    let json = encode_fields(fields);
     sqlx::query("UPDATE collections SET fields_json = $2, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(&json)
         .execute(pool)
         .await?;
     Ok(())
+}
+
+async fn load_fields(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    coll_id: Uuid,
+) -> Result<Vec<Field>, DbError> {
+    let json: serde_json::Value =
+        sqlx::query_scalar("SELECT fields_json FROM collections WHERE id = $1")
+            .bind(coll_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    Ok(decode_fields(&json))
 }
 
 /// Renames a field in the collection AND migrates every record's
@@ -120,38 +263,17 @@ pub async fn rename_field(
     new: &str,
 ) -> Result<(), DbError> {
     let mut tx = pool.begin().await?;
-    // Update the schema list.
-    let mut fields: Vec<String> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT fields_json FROM collections WHERE id = $1",
-    )
-    .bind(coll_id)
-    .fetch_one(&mut *tx)
-    .await?
-    .as_array()
-    .map(|a| {
-        a.iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect()
-    })
-    .unwrap_or_default();
+    let mut fields = load_fields(&mut tx, coll_id).await?;
     for f in fields.iter_mut() {
-        if f == old {
-            *f = new.to_string();
+        if f.name == old {
+            f.name = new.to_string();
         }
     }
-    let new_json = serde_json::Value::Array(
-        fields
-            .into_iter()
-            .map(serde_json::Value::String)
-            .collect(),
-    );
     sqlx::query("UPDATE collections SET fields_json = $2, updated_at = now() WHERE id = $1")
         .bind(coll_id)
-        .bind(&new_json)
+        .bind(encode_fields(&fields))
         .execute(&mut *tx)
         .await?;
-
-    // Migrate records: set data_json - old + new.
     sqlx::query(
         "UPDATE records \
          SET data_json = jsonb_set(data_json - $2::text, ARRAY[$3::text], data_json -> $2::text), \
@@ -163,7 +285,6 @@ pub async fn rename_field(
     .bind(new)
     .execute(&mut *tx)
     .await?;
-
     tx.commit().await?;
     Ok(())
 }
@@ -172,32 +293,13 @@ pub async fn rename_field(
 /// from every record's data_json.
 pub async fn delete_field(pool: &PgPool, coll_id: Uuid, name: &str) -> Result<(), DbError> {
     let mut tx = pool.begin().await?;
-    let mut fields: Vec<String> = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT fields_json FROM collections WHERE id = $1",
-    )
-    .bind(coll_id)
-    .fetch_one(&mut *tx)
-    .await?
-    .as_array()
-    .map(|a| {
-        a.iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect()
-    })
-    .unwrap_or_default();
-    fields.retain(|f| f != name);
-    let new_json = serde_json::Value::Array(
-        fields
-            .into_iter()
-            .map(serde_json::Value::String)
-            .collect(),
-    );
+    let mut fields = load_fields(&mut tx, coll_id).await?;
+    fields.retain(|f| f.name != name);
     sqlx::query("UPDATE collections SET fields_json = $2, updated_at = now() WHERE id = $1")
         .bind(coll_id)
-        .bind(&new_json)
+        .bind(encode_fields(&fields))
         .execute(&mut *tx)
         .await?;
-
     sqlx::query(
         "UPDATE records SET data_json = data_json - $2::text, updated_at = now() \
          WHERE collection_id = $1 AND data_json ? $2::text",
@@ -206,7 +308,6 @@ pub async fn delete_field(pool: &PgPool, coll_id: Uuid, name: &str) -> Result<()
     .bind(name)
     .execute(&mut *tx)
     .await?;
-
     tx.commit().await?;
     Ok(())
 }

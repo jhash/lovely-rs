@@ -188,7 +188,10 @@ async fn add_field_appends_to_collection() {
             .fetch_one(&app.pg)
             .await
             .unwrap();
-    assert_eq!(fields, serde_json::json!(["title", "body"]));
+    let arr = fields.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0].get("name").and_then(|v| v.as_str()), Some("title"));
+    assert_eq!(arr[1].get("name").and_then(|v| v.as_str()), Some("body"));
 }
 
 #[tokio::test]

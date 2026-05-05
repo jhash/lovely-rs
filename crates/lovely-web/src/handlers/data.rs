@@ -69,7 +69,7 @@ pub async fn post_collection_create(
             "name must be 1–40 chars: a-z, 0-9, underscore".into(),
         ));
     }
-    create_collection(&state.pg, app.id, &form.name, &[]).await?;
+    create_collection(&state.pg, app.id, &form.name, &[] as &[lovely_db::Field]).await?;
     // Land on the field editor — fields get added one at a time there.
     Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, form.name)).into_response())
 }
@@ -95,6 +95,8 @@ pub async fn get_collection_edit(
 pub struct AddFieldForm {
     #[serde(default)]
     pub name: String,
+    #[serde(default, rename = "type")]
+    pub type_: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -119,18 +121,69 @@ pub async fn post_field_add(
             "field name must be 1–40 chars: a-z, 0-9, underscore".into(),
         ));
     }
-    let mut fields = coll.fields();
-    if fields.iter().any(|f| f == &form.name) {
+    let mut fields = coll.typed_fields();
+    if fields.iter().any(|f| f.name == form.name) {
         return Err(WebError::Unprocessable(format!(
             "field already exists: {}",
             form.name
         )));
     }
-    fields.push(form.name);
+    let field_type = form
+        .type_
+        .as_deref()
+        .and_then(lovely_db::FieldType::from_str)
+        .unwrap_or(lovely_db::FieldType::Text);
+    fields.push(lovely_db::Field {
+        name: form.name,
+        field_type,
+    });
     lovely_db::collections::set_collection_fields(&state.pg, coll.id, &fields).await?;
     Ok(Redirect::to(&format!(
         "/apps/{}/data/{}/edit",
         app.slug, coll.name
+    ))
+    .into_response())
+}
+
+#[derive(Deserialize, Default)]
+pub struct RenameCollectionForm {
+    #[serde(default)]
+    pub new_name: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_collection_rename(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, coll_name)): Path<(String, String)>,
+    jar: CookieJar,
+    Form(form): Form<RenameCollectionForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if !is_valid_ident(&form.new_name) {
+        return Err(WebError::Unprocessable(
+            "name must be 1–40 chars: a-z, 0-9, underscore".into(),
+        ));
+    }
+    if form.new_name == coll.name {
+        return Ok(Redirect::to(&format!(
+            "/apps/{}/data/{}/edit",
+            app.slug, coll.name
+        ))
+        .into_response());
+    }
+    let updated = lovely_db::rename_collection(&state.pg, coll.id, &form.new_name).await?;
+    Ok(Redirect::to(&format!(
+        "/apps/{}/data/{}/edit",
+        app.slug, updated.name
     ))
     .into_response())
 }

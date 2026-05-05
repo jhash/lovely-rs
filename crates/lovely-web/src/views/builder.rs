@@ -303,6 +303,21 @@ fn row_actions_menu(
                         button type="submit" { "Duplicate" }
                     }
                     form
+                        hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/wrap"))
+                        hx-swap="none"
+                        .tree-action-form {
+                        input type="hidden" name="_csrf" value=(csrf_token);
+                        select name="tag" {
+                            @for tag in ElementTag::ALL {
+                                @if tag.name() != "#text" {
+                                    option value=(tag.name())
+                                        selected[tag.name() == "div"] { (tag.name()) }
+                                }
+                            }
+                        }
+                        button type="submit" { "Wrap in…" }
+                    }
+                    form
                         hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/delete"))
                         hx-swap="none"
                         .tree-action-form {

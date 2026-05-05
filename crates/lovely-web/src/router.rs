@@ -48,6 +48,10 @@ pub fn router(state: AppState) -> Router {
             get(handlers::data::get_collection_edit),
         )
         .route(
+            "/apps/{app_slug}/data/{coll_name}/rename",
+            post(handlers::data::post_collection_rename),
+        )
+        .route(
             "/apps/{app_slug}/data/{coll_name}/fields",
             post(handlers::data::post_field_add),
         )
@@ -158,6 +162,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/duplicate",
             post(handlers::elements::post_duplicate_element),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/wrap",
+            post(handlers::elements::post_wrap_element),
         )
         // --- legacy /pages redirects ---
         .route("/pages", get(handlers::apps::redirect_pages_index))

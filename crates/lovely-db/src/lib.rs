@@ -17,7 +17,8 @@ pub use apps::{
 };
 pub use collections::{
     create_collection, delete_collection, delete_record, find_collection_by_name,
-    insert_record, list_collections, list_records, Collection, Record,
+    insert_record, list_collections, list_records, rename_collection, Collection, Field,
+    FieldType, Record,
 };
 pub use elements::{
     delete_element, insert_element, load_elements_for_page, update_element, ElementDbRow,

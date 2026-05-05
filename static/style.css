@@ -302,6 +302,20 @@ ul.field-list li {
 }
 ul.field-list li:last-child { border-bottom: 0; }
 ul.field-list .inline-form { margin: 0; }
+.field-type-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--soft-border);
+  color: var(--muted-ink);
+  background: var(--hairline);
+  flex-shrink: 0;
+  min-width: 5rem;
+  text-align: center;
+}
 
 .summary-section { margin: var(--space-6) 0; }
 .section-header {
