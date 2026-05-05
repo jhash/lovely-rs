@@ -27,6 +27,10 @@ macro_rules! define_tags {
 }
 
 define_tags! {
+    // Inline text node — no wrapping element. Renders just the
+    // (escaped) `text` payload. Lets authors mix loose text in among
+    // their elements: `<p>read <a/> the docs</p>`.
+    Text => "#text",
     Div => "div", Section => "section", Article => "article",
     Header => "header", Footer => "footer", Nav => "nav",
     Main => "main", Aside => "aside",

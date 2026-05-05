@@ -30,6 +30,13 @@ fn render_iter(tree: &Tree, root: NodeId, out: &mut String) {
                     Some(n) => n,
                     None => continue,
                 };
+                // #text nodes carry escaped text and nothing else.
+                if matches!(node.tag, ElementTag::Text) {
+                    if let Some(t) = &node.text {
+                        push_escaped(t, out);
+                    }
+                    continue;
+                }
                 let tag = node.tag.name();
                 out.push('<');
                 out.push_str(tag);

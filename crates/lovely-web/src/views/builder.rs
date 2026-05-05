@@ -220,7 +220,6 @@ fn tree_node(
         Some(r) => r,
         None => return html! {},
     };
-    // Children sorted by sibling chain.
     let mut children: Vec<&lovely_tree::ElementRow> = ctx
         .elements
         .iter()
@@ -229,22 +228,39 @@ fn tree_node(
     children.sort_by_key(|r| sibling_index(ctx.elements, r.id.into_inner()));
 
     let is_selected = id == selected;
+    let is_text = row.tag == "#text";
+    let label = if is_text {
+        row.text.clone().unwrap_or_default()
+    } else {
+        row.tag.clone()
+    };
     html! {
         li
             data-element-id=(id)
             aria-current=[if is_selected { Some("true") } else { None }] {
-            div .tree-row
-                hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}",
-                    ctx.app.slug, edit_segment, id))
-                hx-target="#inspector"
-                hx-swap="innerHTML"
-                hx-push-url=(format!("/apps/{}/pages/{}/edit?sel={}",
-                    ctx.app.slug, edit_segment, id)) {
-                code { (row.tag) }
-                @if is_root { " " span .pill { "root" } }
-                @if let Some(t) = &row.text {
-                    " " span .muted { (t.chars().take(24).collect::<String>()) }
+            div .tree-row {
+                button .tree-row-button
+                    type="button"
+                    hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}",
+                        ctx.app.slug, edit_segment, id))
+                    hx-target="#inspector"
+                    hx-swap="innerHTML"
+                    hx-push-url=(format!("/apps/{}/pages/{}/edit?sel={}",
+                        ctx.app.slug, edit_segment, id)) {
+                    @if is_text {
+                        span .tree-text-glyph { "T" }
+                        span .tree-text-snippet {
+                            (label.chars().take(28).collect::<String>())
+                        }
+                    } @else {
+                        code { (label) }
+                        @if is_root { " " span .pill { "root" } }
+                        @if let Some(t) = &row.text {
+                            " " span .muted { (t.chars().take(20).collect::<String>()) }
+                        }
+                    }
                 }
+                (row_actions_menu(ctx, row, edit_segment, is_root))
             }
             @if !children.is_empty() {
                 ul .tree-children data-parent-id=(id) {
@@ -255,6 +271,95 @@ fn tree_node(
             } @else {
                 ul .tree-children data-parent-id=(id) {}
             }
+        }
+    }
+}
+
+fn row_actions_menu(
+    ctx: &BuilderCtx<'_>,
+    row: &ElementRow,
+    edit_segment: &str,
+    is_root: bool,
+) -> Markup {
+    let id = row.id;
+    let app_slug = &ctx.app.slug;
+    let csrf_token = ctx.csrf_token;
+    html! {
+        details .tree-actions data-actions {
+            summary title="Actions" { "⋯" }
+            div .tree-actions-menu {
+                @if !is_root {
+                    (sibling_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "add-before", "Add before"))
+                    (sibling_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "add-after", "Add after"))
+                }
+                (child_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "Add child"))
+                @if !is_root {
+                    form
+                        hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/duplicate"))
+                        hx-swap="none"
+                        .tree-action-form {
+                        input type="hidden" name="_csrf" value=(csrf_token);
+                        button type="submit" { "Duplicate" }
+                    }
+                    form
+                        hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/delete"))
+                        hx-swap="none"
+                        .tree-action-form {
+                        input type="hidden" name="_csrf" value=(csrf_token);
+                        button type="submit" .danger { "Delete" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn sibling_action_form(
+    app_slug: &str,
+    edit_segment: &str,
+    id: &str,
+    csrf_token: &str,
+    op: &str,
+    label: &str,
+) -> Markup {
+    html! {
+        form
+            hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/{op}"))
+            hx-swap="none"
+            .tree-action-form {
+            input type="hidden" name="_csrf" value=(csrf_token);
+            select name="tag" {
+                @for tag in ElementTag::ALL {
+                    option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
+                }
+            }
+            input type="text" name="text" placeholder="text (optional)";
+            button type="submit" { (label) }
+        }
+    }
+}
+
+fn child_action_form(
+    app_slug: &str,
+    edit_segment: &str,
+    parent_id: &str,
+    csrf_token: &str,
+    label: &str,
+) -> Markup {
+    html! {
+        form
+            hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements"))
+            hx-swap="none"
+            .tree-action-form {
+            input type="hidden" name="_csrf" value=(csrf_token);
+            input type="hidden" name="parent_id" value=(parent_id);
+            select name="tag" {
+                @for tag in ElementTag::ALL {
+                    option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
+                }
+            }
+            input type="text" name="text" placeholder="text (optional)";
+            button type="submit" { (label) }
         }
     }
 }
@@ -345,9 +450,10 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
 
 fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
+    let is_root = ctx.page.root_element == Some(row.id.into_inner());
     html! {
-        div .inspector-add-child {
-            h3 { "Add child element" }
+        div .inspector-add {
+            h3 { "Add element" }
             form
                 hx-post=(format!("/apps/{}/pages/{}/elements",
                     ctx.app.slug, edit_segment))
@@ -359,7 +465,8 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                     "Tag"
                     select name="tag" required {
                         @for tag in ElementTag::ALL {
-                            option value=(tag.name()) { (tag.name()) }
+                            option value=(tag.name())
+                                selected[tag.name() == "div"] { (tag.name()) }
                         }
                     }
                 }
@@ -367,7 +474,21 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                     "Text content (optional)"
                     input type="text" name="text";
                 }
-                button type="submit" { "Add child" }
+                div .inspector-add-buttons {
+                    button type="submit" { "Add child" }
+                    @if !is_root {
+                        button type="submit"
+                            formaction=(format!("/apps/{}/pages/{}/elements/{}/add-before",
+                                ctx.app.slug, edit_segment, row.id))
+                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-before",
+                                ctx.app.slug, edit_segment, row.id)) { "Add before" }
+                        button type="submit"
+                            formaction=(format!("/apps/{}/pages/{}/elements/{}/add-after",
+                                ctx.app.slug, edit_segment, row.id))
+                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
+                                ctx.app.slug, edit_segment, row.id)) { "Add after" }
+                    }
+                }
             }
         }
     }

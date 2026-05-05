@@ -123,6 +123,18 @@ pub fn router(state: AppState) -> Router {
             "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/delete",
             post(handlers::elements::post_delete_element),
         )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/add-before",
+            post(handlers::elements::post_add_before),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/add-after",
+            post(handlers::elements::post_add_after),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/duplicate",
+            post(handlers::elements::post_duplicate_element),
+        )
         // --- legacy /pages redirects ---
         .route("/pages", get(handlers::apps::redirect_pages_index))
         .route("/pages/new", get(handlers::apps::redirect_pages_new))

@@ -94,6 +94,212 @@ pub async fn post_add_element(
 }
 
 #[derive(Deserialize, Default)]
+pub struct AddSiblingForm {
+    pub tag: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+/// Insert a new sibling immediately before the target element.
+pub async fn post_add_before(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug, target_id)): Path<(String, String, Uuid)>,
+    HxRequest(is_htmx): HxRequest,
+    jar: CookieJar,
+    Form(form): Form<AddSiblingForm>,
+) -> Result<Response, WebError> {
+    add_sibling(
+        &state,
+        user.id,
+        &app_slug,
+        &page_slug,
+        target_id,
+        is_htmx,
+        jar,
+        form,
+        Position::Before,
+    )
+    .await
+}
+
+/// Insert a new sibling immediately after the target element.
+pub async fn post_add_after(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug, target_id)): Path<(String, String, Uuid)>,
+    HxRequest(is_htmx): HxRequest,
+    jar: CookieJar,
+    Form(form): Form<AddSiblingForm>,
+) -> Result<Response, WebError> {
+    add_sibling(
+        &state,
+        user.id,
+        &app_slug,
+        &page_slug,
+        target_id,
+        is_htmx,
+        jar,
+        form,
+        Position::After,
+    )
+    .await
+}
+
+#[derive(Copy, Clone)]
+enum Position {
+    Before,
+    After,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn add_sibling(
+    state: &AppState,
+    user_id: Uuid,
+    app_slug: &str,
+    page_slug: &str,
+    target_id: Uuid,
+    is_htmx: bool,
+    jar: CookieJar,
+    form: AddSiblingForm,
+    pos: Position,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user_id, app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let real_slug = super::pages::decode_slug_segment(page_slug);
+    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if page.author_id != user_id {
+        return Err(WebError::Forbidden);
+    }
+    if !is_valid_tag(&form.tag) {
+        return Err(WebError::BadRequest(format!("unknown tag: {}", form.tag)));
+    }
+    // Look up target's parent + prev_sibling.
+    let target: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT parent_id, prev_sibling FROM elements WHERE id = $1 AND page_id = $2",
+    )
+    .bind(target_id)
+    .bind(page.id)
+    .fetch_optional(&state.pg)
+    .await
+    .map_err(lovely_db::DbError::Sqlx)?;
+    let Some((parent_id, target_prev)) = target else {
+        return Err(WebError::NotFound);
+    };
+    let new_prev = match pos {
+        Position::Before => target_prev, // new takes target's old prev
+        Position::After => Some(target_id),
+    };
+    let payload = json!({"text": form.text.unwrap_or_default()});
+    let new_row = lovely_db::insert_element(
+        &state.pg,
+        lovely_db::InsertElement {
+            page_id: page.id,
+            parent_id,
+            prev_sibling: new_prev,
+            tag: form.tag,
+            attrs: serde_json::Value::Object(Default::default()),
+            payload,
+        },
+    )
+    .await?;
+    // Before-position: relink target so its prev_sibling becomes the new id.
+    if matches!(pos, Position::Before) {
+        sqlx::query("UPDATE elements SET prev_sibling = $1 WHERE id = $2")
+            .bind(new_row.id)
+            .bind(target_id)
+            .execute(&state.pg)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
+    }
+    lovely_db::snapshot_page(&state.pg, page.id).await?;
+    if is_htmx {
+        return Ok(hx_ok_preview_stale());
+    }
+    Ok(Redirect::to(&format!(
+        "/apps/{}/pages/{}/edit",
+        app.slug,
+        super::pages::slug_path_segment(&page.slug)
+    ))
+    .into_response())
+}
+
+fn is_valid_tag(s: &str) -> bool {
+    ElementTag::from_name(s).is_some()
+}
+
+#[derive(Deserialize, Default)]
+pub struct DuplicateForm {
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_duplicate_element(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug, target_id)): Path<(String, String, Uuid)>,
+    HxRequest(is_htmx): HxRequest,
+    jar: CookieJar,
+    Form(form): Form<DuplicateForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let real_slug = super::pages::decode_slug_segment(&page_slug);
+    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if page.author_id != user.id {
+        return Err(WebError::Forbidden);
+    }
+    // Pull the source row's tag/attrs/payload.
+    let src: Option<(Option<Uuid>, String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        "SELECT parent_id, tag, attrs, payload FROM elements WHERE id = $1 AND page_id = $2",
+    )
+    .bind(target_id)
+    .bind(page.id)
+    .fetch_optional(&state.pg)
+    .await
+    .map_err(lovely_db::DbError::Sqlx)?;
+    let Some((parent_id, tag, attrs, payload)) = src else {
+        return Err(WebError::NotFound);
+    };
+    // Insert the dup as a new sibling immediately after the source.
+    let new_row = lovely_db::insert_element(
+        &state.pg,
+        lovely_db::InsertElement {
+            page_id: page.id,
+            parent_id,
+            prev_sibling: Some(target_id),
+            tag,
+            attrs,
+            payload,
+        },
+    )
+    .await?;
+    let _ = new_row;
+    lovely_db::snapshot_page(&state.pg, page.id).await?;
+    if is_htmx {
+        return Ok(hx_ok_preview_stale());
+    }
+    Ok(Redirect::to(&format!(
+        "/apps/{}/pages/{}/edit",
+        app.slug,
+        super::pages::slug_path_segment(&page.slug)
+    ))
+    .into_response())
+}
+
+#[derive(Deserialize, Default)]
 pub struct DeleteElementForm {
     #[serde(default)]
     pub _csrf: Option<String>,
