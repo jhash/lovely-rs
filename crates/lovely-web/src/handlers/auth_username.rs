@@ -10,19 +10,25 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use lovely_db::{create_user, find_user_by_username, NewUser};
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct LoginForm {
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub password: String,
-    pub _csrf: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct RegisterForm {
+    #[serde(default)]
     pub username: String,
     pub email: Option<String>,
+    #[serde(default)]
     pub password: String,
-    pub _csrf: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
 }
 
 pub async fn get_login(State(state): State<AppState>, jar: CookieJar) -> Response {
@@ -37,7 +43,7 @@ pub async fn post_login(
     Form(form): Form<LoginForm>,
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
-    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
 
     let user = find_user_by_username(&state.pg, &form.username).await?;
     let Some(user) = user else {
@@ -99,7 +105,7 @@ pub async fn post_register(
     Form(form): Form<RegisterForm>,
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
-    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
 
     if form.username.len() < 3 || form.username.len() > 40 {
         return Ok(register_error(
@@ -179,9 +185,10 @@ fn register_error(state: &AppState, jar: CookieJar, msg: &'static str) -> Respon
         .into_response()
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct LogoutForm {
-    pub _csrf: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
 }
 
 pub async fn post_logout(
@@ -190,7 +197,8 @@ pub async fn post_logout(
     Form(form): Form<LogoutForm>,
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
-    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let _ = state;
     if let Some(c) = jar.get(SESSION_COOKIE) {
         let _ = lovely_db::delete_session(&state.pg, c.value()).await;
     }

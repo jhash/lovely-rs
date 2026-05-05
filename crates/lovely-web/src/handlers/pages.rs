@@ -32,12 +32,15 @@ pub async fn get_pages_new(
     Ok((jar, axum::response::Html(html)).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct CreatePageForm {
+    #[serde(default)]
     pub slug: String,
+    #[serde(default)]
     pub title: String,
     pub description: Option<String>,
-    pub _csrf: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
 }
 
 pub async fn post_pages_create(
@@ -47,7 +50,7 @@ pub async fn post_pages_create(
     Form(form): Form<CreatePageForm>,
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
-    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
     if !is_valid_slug(&form.slug) {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
         let html = pages_views::pages_new(
@@ -103,9 +106,10 @@ pub async fn get_page_by_slug(
     Ok((jar, axum::response::Html(html)).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct DeletePageForm {
-    pub _csrf: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
 }
 
 pub async fn delete_page_handler(
@@ -116,7 +120,7 @@ pub async fn delete_page_handler(
     Form(form): Form<DeletePageForm>,
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
-    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
     let page = lovely_db::find_page_by_slug(&state.pg, &slug)
         .await?
         .ok_or(WebError::NotFound)?;

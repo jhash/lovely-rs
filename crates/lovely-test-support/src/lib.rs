@@ -36,7 +36,13 @@ impl PgTestContainer {
             .execute(&admin)
             .await?;
         admin.close().await;
-        let url = self.admin_url.replace("/postgres", &format!("/{dbname}"));
+        // Replace only the trailing /postgres path component, never the
+        // postgres:// scheme.
+        let (head, _) = self
+            .admin_url
+            .rsplit_once('/')
+            .ok_or_else(|| anyhow::anyhow!("admin_url has no path component"))?;
+        let url = format!("{head}/{dbname}");
         let pool = PgPool::connect(&url).await?;
         lovely_db::pg::MIGRATOR.run(&pool).await?;
         Ok(pool)
@@ -50,6 +56,7 @@ pub struct TestApp {
     pub url: String,
     pub pg: PgPool,
     pub client: reqwest::Client,
+    pub jar: Arc<reqwest::cookie::Jar>,
     pub data_dir: TempDir,
     _shutdown: tokio::sync::oneshot::Sender<()>,
 }
@@ -83,8 +90,9 @@ impl TestApp {
                 })
                 .await;
         });
+        let jar = Arc::new(reqwest::cookie::Jar::default());
         let client = reqwest::Client::builder()
-            .cookie_store(true)
+            .cookie_provider(jar.clone())
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         for _ in 0..50 {
@@ -99,28 +107,33 @@ impl TestApp {
             url,
             pg,
             client,
+            jar,
             data_dir,
             _shutdown: tx,
         })
     }
 
     /// Hits `/auth/login` to provoke the csrf_token cookie, then returns
-    /// the value parsed from the Set-Cookie header.
+    /// the value from the cookie jar (which persists across requests).
     pub async fn csrf_token(&self) -> anyhow::Result<String> {
-        let resp = self
+        use reqwest::cookie::CookieStore;
+        let _ = self
             .client
             .get(format!("{}/auth/login", self.url))
             .send()
             .await?;
-        for sc in resp.headers().get_all(reqwest::header::SET_COOKIE).iter() {
-            let s = sc.to_str()?;
-            if let Some(rest) = s.strip_prefix("csrf_token=") {
-                if let Some(end) = rest.find(';') {
-                    return Ok(rest[..end].to_string());
-                }
+        let url: reqwest::Url = self.url.parse()?;
+        let header = self
+            .jar
+            .cookies(&url)
+            .ok_or_else(|| anyhow::anyhow!("no cookies in jar for {url}"))?;
+        let s = header.to_str()?;
+        for piece in s.split(';') {
+            let piece = piece.trim();
+            if let Some(rest) = piece.strip_prefix("csrf_token=") {
                 return Ok(rest.to_string());
             }
         }
-        anyhow::bail!("csrf_token cookie not set on /auth/login response")
+        anyhow::bail!("csrf_token cookie not set in jar")
     }
 }
