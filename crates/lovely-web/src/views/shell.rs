@@ -35,17 +35,19 @@ pub fn shell(ctx: ShellCtx<'_>, body: Markup) -> Markup {
 fn top_nav(user: Option<&User>) -> Markup {
     html! {
         nav .top-nav {
-            a .brand href="/" { "lovely" }
-            div .spacer {}
-            @if let Some(u) = user {
-                a href="/apps" { "Apps" }
-                a href={"/" (u.username)} { "/" (u.username) }
-                form method="post" action="/auth/logout" .inline-form {
-                    button type="submit" { "Sign out (" (u.username) ")" }
+            div .container {
+                a .brand href="/" { "lovely" }
+                div .spacer {}
+                @if let Some(u) = user {
+                    a href="/apps" { "Apps" }
+                    a href={"/" (u.username)} { "/" (u.username) }
+                    form method="post" action="/auth/logout" .inline-form {
+                        button type="submit" { "Sign out (" (u.username) ")" }
+                    }
+                } @else {
+                    a href="/auth/login" { "Sign in" }
+                    a href="/auth/register" { "Register" }
                 }
-            } @else {
-                a href="/auth/login" { "Sign in" }
-                a href="/auth/register" { "Register" }
             }
         }
     }

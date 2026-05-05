@@ -81,12 +81,16 @@ a:visited { color: var(--ink); }
 
 /* Top nav */
 nav.top-nav {
+  border-bottom: 1px solid var(--soft-border);
+  background: var(--paper);
+}
+nav.top-nav .container {
   display: flex;
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--soft-border);
-  background: var(--paper);
+  max-width: 70rem;
+  margin: 0 auto;
 }
 nav.top-nav .brand {
   font-weight: 700;
