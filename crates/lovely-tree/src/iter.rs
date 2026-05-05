@@ -169,9 +169,7 @@ mod tests {
         let (mut tree, root) = fresh();
         let mut parent = root;
         for _ in 0..1000 {
-            parent = tree
-                .append_child(parent, nn(ElementTag::Div))
-                .unwrap();
+            parent = tree.append_child(parent, nn(ElementTag::Div)).unwrap();
         }
         // Take only 3 — must not walk the whole 1000-deep tree.
         let count = tree.descendants(root).take(3).count();

@@ -1,0 +1,313 @@
+use crate::arena::{NewNode, Tree};
+use crate::attrs::{AttrList, AttrName};
+use crate::errors::TreeError;
+use crate::tags::ElementTag;
+use crate::types::ElementUuid;
+use std::collections::HashMap;
+
+/// Flat row as it comes off the database. The tree is reconstructed in
+/// memory by [`Tree::from_db_rows`].
+#[derive(Clone, Debug)]
+pub struct ElementRow {
+    pub id: ElementUuid,
+    pub parent_id: Option<ElementUuid>,
+    pub prev_sibling: Option<ElementUuid>,
+    pub tag: String,
+    pub attrs_json: serde_json::Value,
+    pub text: Option<String>,
+}
+
+impl Tree {
+    /// Build a `Tree` from a flat slice of rows. Order of input is irrelevant.
+    /// Validates: exactly one root, no orphan parent_id references, no cycles,
+    /// no duplicate uuids, sibling chain is consistent.
+    pub fn from_db_rows(rows: &[ElementRow]) -> Result<Self, TreeError> {
+        // Validate uuid uniqueness.
+        let mut by_id: HashMap<ElementUuid, &ElementRow> = HashMap::new();
+        for row in rows {
+            if by_id.insert(row.id, row).is_some() {
+                return Err(TreeError::DuplicateUuid(row.id));
+            }
+        }
+
+        // Find unique root.
+        let mut root_row: Option<&ElementRow> = None;
+        for row in rows {
+            if row.parent_id.is_none() {
+                if root_row.is_some() {
+                    return Err(TreeError::MalformedRow(
+                        "multiple rows with parent_id = NULL".into(),
+                    ));
+                }
+                root_row = Some(row);
+            }
+        }
+        let root_row = root_row.ok_or_else(|| {
+            TreeError::MalformedRow("no row with parent_id = NULL (no root)".into())
+        })?;
+
+        // Verify every parent_id references a known row.
+        for row in rows {
+            if let Some(p) = row.parent_id {
+                if !by_id.contains_key(&p) {
+                    return Err(TreeError::MalformedRow(format!(
+                        "row {} has unknown parent {}",
+                        row.id, p
+                    )));
+                }
+            }
+        }
+
+        // Group rows by parent_id and order each sibling list via the
+        // prev_sibling chain.
+        let mut children_by_parent: HashMap<ElementUuid, Vec<&ElementRow>> = HashMap::new();
+        for row in rows {
+            if let Some(p) = row.parent_id {
+                children_by_parent.entry(p).or_default().push(row);
+            }
+        }
+        let mut ordered_children: HashMap<ElementUuid, Vec<&ElementRow>> = HashMap::new();
+        for (parent, group) in children_by_parent {
+            ordered_children.insert(parent, order_siblings(parent, &group)?);
+        }
+
+        // Build the tree by BFS from root. Detects cycles via visited set.
+        let root_tag = parse_tag(&root_row.tag)?;
+        let mut tree = Tree::new(root_row.id, root_tag);
+        // Apply root attrs/text.
+        if let Some(attrs) = parse_attrs(&root_row.attrs_json)? {
+            patch_root(&mut tree, attrs, root_row.text.clone());
+        } else {
+            patch_root(&mut tree, AttrList::new(), root_row.text.clone());
+        }
+
+        let mut visited: std::collections::HashSet<ElementUuid> = std::collections::HashSet::new();
+        visited.insert(root_row.id);
+        let mut queue: std::collections::VecDeque<ElementUuid> = std::collections::VecDeque::new();
+        queue.push_back(root_row.id);
+        while let Some(parent_uuid) = queue.pop_front() {
+            let parent_node_id = tree
+                .get_by_uuid(parent_uuid)
+                .ok_or(TreeError::UnknownUuid(parent_uuid))?;
+            if let Some(children) = ordered_children.remove(&parent_uuid) {
+                for child_row in children {
+                    if !visited.insert(child_row.id) {
+                        return Err(TreeError::MalformedRow(format!(
+                            "cycle detected at row {}",
+                            child_row.id
+                        )));
+                    }
+                    let tag = parse_tag(&child_row.tag)?;
+                    let attrs = parse_attrs(&child_row.attrs_json)?.unwrap_or_default();
+                    let mut new = NewNode::new(child_row.id, tag);
+                    new.attrs = attrs;
+                    new.text = child_row.text.clone();
+                    tree.append_child(parent_node_id, new)?;
+                    queue.push_back(child_row.id);
+                }
+            }
+        }
+
+        // Any rows left unvisited mean orphans (e.g. parent points to a row
+        // that itself is unreachable from root) — also a cycle / disconnected.
+        if visited.len() != rows.len() {
+            return Err(TreeError::MalformedRow(format!(
+                "{} row(s) unreachable from root",
+                rows.len() - visited.len()
+            )));
+        }
+        Ok(tree)
+    }
+}
+
+fn parse_tag(s: &str) -> Result<ElementTag, TreeError> {
+    ElementTag::from_name(s).ok_or_else(|| TreeError::MalformedRow(format!("unknown tag: {s}")))
+}
+
+fn parse_attrs(json: &serde_json::Value) -> Result<Option<AttrList>, TreeError> {
+    if json.is_null() {
+        return Ok(None);
+    }
+    let obj = json
+        .as_object()
+        .ok_or_else(|| TreeError::MalformedRow(format!("attrs not an object: {json}")))?;
+    let mut list = AttrList::new();
+    for (k, v) in obj {
+        let name = AttrName::new(k)?;
+        let value = match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Null => String::new(),
+            other => {
+                return Err(TreeError::MalformedRow(format!(
+                    "attr {k} has non-scalar value {other}"
+                )))
+            }
+        };
+        list.push(name, value);
+    }
+    Ok(Some(list))
+}
+
+fn patch_root(tree: &mut Tree, attrs: AttrList, text: Option<String>) {
+    let root = tree.root();
+    tree.update(
+        root,
+        crate::arena::NodePatch {
+            attrs: Some(attrs),
+            text: Some(text),
+            tag: None,
+        },
+    )
+    .expect("root always exists");
+}
+
+/// Sort sibling rows according to the prev_sibling linked list.
+fn order_siblings<'a>(
+    parent: ElementUuid,
+    rows: &[&'a ElementRow],
+) -> Result<Vec<&'a ElementRow>, TreeError> {
+    let by_id: HashMap<ElementUuid, &'a ElementRow> = rows.iter().map(|r| (r.id, *r)).collect();
+    // Map prev_sibling -> row: each non-head row has a unique prev.
+    let mut next_of: HashMap<Option<ElementUuid>, &'a ElementRow> = HashMap::new();
+    for row in rows {
+        if next_of.insert(row.prev_sibling, *row).is_some() {
+            return Err(TreeError::MalformedRow(format!(
+                "siblings of {parent} have two rows with the same prev_sibling"
+            )));
+        }
+    }
+    // Verify any prev_sibling reference points within this sibling group.
+    for row in rows {
+        if let Some(prev) = row.prev_sibling {
+            if !by_id.contains_key(&prev) {
+                return Err(TreeError::MalformedRow(format!(
+                    "row {} has prev_sibling {} not in same sibling group",
+                    row.id, prev
+                )));
+            }
+        }
+    }
+    // Walk: head is the row with prev_sibling = None.
+    let mut ordered: Vec<&'a ElementRow> = Vec::with_capacity(rows.len());
+    let mut cursor: Option<ElementUuid> = None;
+    while let Some(row) = next_of.remove(&cursor) {
+        ordered.push(row);
+        cursor = Some(row.id);
+    }
+    if ordered.len() != rows.len() {
+        return Err(TreeError::MalformedRow(format!(
+            "siblings of {parent} have a broken prev_sibling chain"
+        )));
+    }
+    Ok(ordered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn row(
+        id: ElementUuid,
+        parent: Option<ElementUuid>,
+        prev: Option<ElementUuid>,
+        tag: &str,
+    ) -> ElementRow {
+        ElementRow {
+            id,
+            parent_id: parent,
+            prev_sibling: prev,
+            tag: tag.into(),
+            attrs_json: json!({}),
+            text: None,
+        }
+    }
+
+    #[test]
+    fn builds_tree_from_rows_in_any_input_order() {
+        let r = ElementUuid::new_v4();
+        let a = ElementUuid::new_v4();
+        let b = ElementUuid::new_v4();
+        let c = ElementUuid::new_v4();
+        let rows = vec![
+            row(b, Some(r), Some(a), "p"), // shuffled
+            row(c, Some(a), None, "span"),
+            row(r, None, None, "div"),
+            row(a, Some(r), None, "p"),
+        ];
+        let tree = Tree::from_db_rows(&rows).unwrap();
+        let root_id = tree.root();
+        let kids: Vec<_> = tree.children(root_id).map(|(_, n)| n.uuid).collect();
+        assert_eq!(kids, vec![a, b]);
+        let a_id = tree.get_by_uuid(a).unwrap();
+        let a_kids: Vec<_> = tree.children(a_id).map(|(_, n)| n.uuid).collect();
+        assert_eq!(a_kids, vec![c]);
+    }
+
+    #[test]
+    fn rejects_rows_with_no_root() {
+        let a = ElementUuid::new_v4();
+        let b = ElementUuid::new_v4();
+        let rows = vec![row(a, Some(b), None, "div"), row(b, Some(a), None, "div")];
+        let err = Tree::from_db_rows(&rows).unwrap_err();
+        assert!(matches!(err, TreeError::MalformedRow(_)));
+    }
+
+    #[test]
+    fn rejects_rows_with_two_roots() {
+        let a = ElementUuid::new_v4();
+        let b = ElementUuid::new_v4();
+        let rows = vec![row(a, None, None, "div"), row(b, None, None, "div")];
+        let err = Tree::from_db_rows(&rows).unwrap_err();
+        assert!(matches!(err, TreeError::MalformedRow(_)));
+    }
+
+    #[test]
+    fn rejects_rows_with_orphan_parent() {
+        let r = ElementUuid::new_v4();
+        let a = ElementUuid::new_v4();
+        let ghost = ElementUuid::new_v4();
+        let rows = vec![row(r, None, None, "div"), row(a, Some(ghost), None, "p")];
+        let err = Tree::from_db_rows(&rows).unwrap_err();
+        assert!(matches!(err, TreeError::MalformedRow(_)));
+    }
+
+    #[test]
+    fn rejects_duplicate_uuid_in_input() {
+        let r = ElementUuid::new_v4();
+        let dup = ElementUuid::new_v4();
+        let rows = vec![
+            row(r, None, None, "div"),
+            row(dup, Some(r), None, "p"),
+            row(dup, Some(r), Some(dup), "p"),
+        ];
+        let err = Tree::from_db_rows(&rows).unwrap_err();
+        assert!(matches!(err, TreeError::DuplicateUuid(_)));
+    }
+
+    #[test]
+    fn rejects_unknown_tag() {
+        let r = ElementUuid::new_v4();
+        let rows = vec![row(r, None, None, "marquee")];
+        let err = Tree::from_db_rows(&rows).unwrap_err();
+        assert!(matches!(err, TreeError::MalformedRow(_)));
+    }
+
+    #[test]
+    fn parses_string_attrs() {
+        let r = ElementUuid::new_v4();
+        let rows = vec![ElementRow {
+            id: r,
+            parent_id: None,
+            prev_sibling: None,
+            tag: "div".into(),
+            attrs_json: json!({"id": "main", "class": "container"}),
+            text: None,
+        }];
+        let tree = Tree::from_db_rows(&rows).unwrap();
+        let attrs = &tree.get(tree.root()).unwrap().attrs;
+        assert_eq!(attrs.len(), 2);
+    }
+}
