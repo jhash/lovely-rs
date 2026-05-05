@@ -50,6 +50,15 @@ So `Tree::get(&self) -> Option<&Node>` says "I'll show you a node; many callers 
 
 The trade-off: returning `&Node` from `get` ties the reference's lifetime to the `&self` borrow. You can't hold an `&Node` and call `&mut self` methods on the tree at the same time. This is annoying at first and turns out to prevent a class of bugs we don't think about often (modifying a tree while reading a piece of it).
 
+## Lifetimes (`'a`) on iterators
+**First seen:** `crates/lovely-tree/src/iter.rs::ChildrenIter<'a>`
+
+ELI5: a lifetime is a *promise to the compiler* — "this reference is only valid as long as `'a` lasts." `ChildrenIter<'a>` borrows the `Tree` for `'a`, so while you have the iterator, the compiler refuses to let you mutate the tree (because that mutable borrow would conflict with the iterator's shared borrow).
+
+The `<'a>` annotation is verbose, but most of the time you don't write it — Rust *elides* lifetimes in simple cases. We have to spell them out here because the iterator's lifetime parameter shows up in the `Item` associated type (`type Item = (NodeId, &'a Node)`) — the elision rules can't infer it.
+
+The payoff: an iterator that costs zero extra allocation (no `Vec` of children, just a "cursor" pointer that follows `next_sibling` on demand). And `tree.descendants(root).take(3)` actually only walks 3 nodes, not the whole tree.
+
 ## Generational keys (slotmap)
 **First seen:** `crates/lovely-tree/src/types.rs::NodeId`
 
