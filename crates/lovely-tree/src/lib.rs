@@ -3,6 +3,8 @@ pub mod attrs;
 pub mod build;
 pub mod errors;
 pub mod iter;
+#[cfg(feature = "render")]
+pub mod render;
 pub mod tags;
 pub mod types;
 
