@@ -1,0 +1,199 @@
+use crate::auth::{csrf, extractor::SESSION_COOKIE, hash_password, verify_password, MaybeUser};
+use crate::state::AppState;
+use crate::views::auth as auth_views;
+use crate::WebError;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Form;
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use lovely_db::{create_user, find_user_by_username, NewUser};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct LoginForm {
+    pub username: String,
+    pub password: String,
+    pub _csrf: String,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterForm {
+    pub username: String,
+    pub email: Option<String>,
+    pub password: String,
+    pub _csrf: String,
+}
+
+pub async fn get_login(State(state): State<AppState>, jar: CookieJar) -> Response {
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = auth_views::login_page(&token, None).into_string();
+    (jar, axum::response::Html(html)).into_response()
+}
+
+pub async fn post_login(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<LoginForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+
+    let user = find_user_by_username(&state.pg, &form.username).await?;
+    let Some(user) = user else {
+        let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+        let html =
+            auth_views::login_page(&token, Some("Invalid username or password")).into_string();
+        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+    };
+    let Some(hash) = user.password_hash.as_deref() else {
+        let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+        let html = auth_views::login_page(&token, Some("Use OAuth to sign in to this account"))
+            .into_string();
+        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+    };
+    if !verify_password(&form.password, hash) {
+        let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+        let html =
+            auth_views::login_page(&token, Some("Invalid username or password")).into_string();
+        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+    }
+
+    // Create session
+    let session = lovely_db::create_session(
+        &state.pg,
+        lovely_db::NewSession {
+            user_id: user.id,
+            ttl: chrono::Duration::days(30),
+            user_agent: None,
+        },
+    )
+    .await?;
+    let secure = state.base_url.starts_with("https://");
+    let cookie = Cookie::build((SESSION_COOKIE, session.id))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(secure)
+        .max_age(time::Duration::days(30));
+    let jar = jar.add(cookie);
+    Ok((jar, axum::response::Redirect::to("/pages")).into_response())
+}
+
+pub async fn get_register(
+    State(state): State<AppState>,
+    MaybeUser(maybe_user): MaybeUser,
+    jar: CookieJar,
+) -> Response {
+    if maybe_user.is_some() {
+        return axum::response::Redirect::to("/pages").into_response();
+    }
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = auth_views::register_page(&token, None).into_string();
+    (jar, axum::response::Html(html)).into_response()
+}
+
+pub async fn post_register(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<RegisterForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+
+    if form.username.len() < 3 || form.username.len() > 40 {
+        return Ok(register_error(
+            &state,
+            jar,
+            "Username must be 3–40 characters",
+        ));
+    }
+    if form.password.len() < 8 {
+        return Ok(register_error(
+            &state,
+            jar,
+            "Password must be at least 8 characters",
+        ));
+    }
+    if !form
+        .username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Ok(register_error(
+            &state,
+            jar,
+            "Username may only contain a-z, 0-9, _, -",
+        ));
+    }
+    let hash = hash_password(&form.password)?;
+    let user = match create_user(
+        &state.pg,
+        NewUser {
+            username: form.username,
+            email: form.email.filter(|s| !s.is_empty()),
+            password_hash: Some(hash),
+        },
+    )
+    .await
+    {
+        Ok(u) => u,
+        Err(lovely_db::DbError::Conflict(_)) => {
+            return Ok(register_error(
+                &state,
+                jar,
+                "Username or email already taken",
+            ));
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let session = lovely_db::create_session(
+        &state.pg,
+        lovely_db::NewSession {
+            user_id: user.id,
+            ttl: chrono::Duration::days(30),
+            user_agent: None,
+        },
+    )
+    .await?;
+    let secure = state.base_url.starts_with("https://");
+    let cookie = Cookie::build((SESSION_COOKIE, session.id))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(secure)
+        .max_age(time::Duration::days(30));
+    let jar = jar.add(cookie);
+    Ok((jar, axum::response::Redirect::to("/pages")).into_response())
+}
+
+fn register_error(state: &AppState, jar: CookieJar, msg: &'static str) -> Response {
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = auth_views::register_page(&token, Some(msg)).into_string();
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        jar,
+        axum::response::Html(html),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct LogoutForm {
+    pub _csrf: String,
+}
+
+pub async fn post_logout(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<LogoutForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), Some(&form._csrf))?;
+    if let Some(c) = jar.get(SESSION_COOKIE) {
+        let _ = lovely_db::delete_session(&state.pg, c.value()).await;
+    }
+    let jar = jar.remove(SESSION_COOKIE);
+    Ok((jar, axum::response::Redirect::to("/")).into_response())
+}
