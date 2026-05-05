@@ -31,7 +31,14 @@ pub struct RegisterForm {
     pub _csrf: Option<String>,
 }
 
-pub async fn get_login(State(state): State<AppState>, jar: CookieJar) -> Response {
+pub async fn get_login(
+    State(state): State<AppState>,
+    MaybeUser(user): MaybeUser,
+    jar: CookieJar,
+) -> Response {
+    if user.is_some() {
+        return axum::response::Redirect::to("/apps").into_response();
+    }
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     let html = auth_views::login_page(&token, None).into_string();
     (jar, axum::response::Html(html)).into_response()
@@ -153,6 +160,19 @@ pub async fn post_register(
         }
         Err(e) => return Err(e.into()),
     };
+
+    // Auto-create the user's default "Personal" app.
+    lovely_db::create_app(
+        &state.pg,
+        lovely_db::NewApp {
+            slug: "personal".into(),
+            name: "Personal".into(),
+            description: None,
+            owner_id: user.id,
+            is_default: true,
+        },
+    )
+    .await?;
 
     let session = lovely_db::create_session(
         &state.pg,

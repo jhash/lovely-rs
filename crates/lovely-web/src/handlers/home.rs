@@ -1,24 +1,40 @@
+use crate::auth::{csrf, MaybeUser};
+use crate::state::AppState;
 use crate::views::{shell, ShellCtx};
-use axum::response::IntoResponse;
+use axum::extract::State;
+use axum::response::{IntoResponse, Redirect, Response};
+use axum_extra::extract::cookie::CookieJar;
 use maud::html;
 
-pub async fn home() -> impl IntoResponse {
-    let csrf = ""; // CSRF middleware will populate this in a later step.
+pub async fn home(
+    State(state): State<AppState>,
+    MaybeUser(user): MaybeUser,
+    jar: CookieJar,
+) -> Response {
+    if user.is_some() {
+        return Redirect::to("/apps").into_response();
+    }
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     let body = html! {
-        h1 { "lovely" }
-        p { "A dynamic site builder." }
-        p { a href="/auth/login" { "Sign in" } " or " a href="/auth/register" { "Register" } "." }
+        section .hero {
+            h1 { "lovely" }
+            p .lead { "A dynamic site builder." }
+            p {
+                a href="/auth/login" .button { "Sign in" }
+                " "
+                a href="/auth/register" { "Register" }
+            }
+        }
     };
-    axum::response::Html(
-        shell(
-            ShellCtx {
-                title: "lovely",
-                description: Some("A dynamic site builder"),
-                user: None,
-                csrf_token: csrf,
-            },
-            body,
-        )
-        .into_string(),
+    let html = shell(
+        ShellCtx {
+            title: "lovely",
+            description: Some("A dynamic site builder"),
+            user: None,
+            csrf_token: &token,
+        },
+        body,
     )
+    .into_string();
+    (jar, axum::response::Html(html)).into_response()
 }
