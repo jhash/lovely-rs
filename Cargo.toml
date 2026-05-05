@@ -1,0 +1,70 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lovely-tree",
+    "crates/lovely-db",
+    "crates/lovely-web",
+    "crates/lovely-server",
+    "crates/lovely-data",
+    "crates/lovely-test-support",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.83"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+axum = { version = "0.8", features = ["macros", "tracing"] }
+axum-extra = { version = "0.10", features = ["cookie", "cookie-signed", "typed-header", "form"] }
+axum-htmx = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "compression-gzip", "compression-br", "fs", "timeout", "request-id"] }
+hyper = "1"
+
+maud = "0.27"
+
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid", "chrono", "json", "macros", "migrate"] }
+
+oauth2 = "5"
+argon2 = "0.5"
+totp-rs = { version = "5", features = ["qr"] }
+qrcode = "0.14"
+jsonwebtoken = "9"
+secrecy = { version = "0.10", features = ["serde"] }
+rand = "0.8"
+
+tower-sessions = "0.13"
+tower-sessions-sqlx-store = { version = "0.14", features = ["postgres"] }
+
+slotmap = "1"
+smol_str = "0.3"
+
+dashmap = "6"
+moka = { version = "0.12", features = ["future"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
+
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
+scraper = "0.21"
+fantoccini = "0.21"
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
