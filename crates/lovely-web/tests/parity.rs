@@ -72,7 +72,15 @@ async fn phase9_repeat_renders_one_child_per_record() {
     let _ = app
         .client
         .post(format!("{}/apps/personal/data", app.url))
-        .form(&[("name", "posts"), ("fields", "title"), ("_csrf", &token)])
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/fields", app.url))
+        .form(&[("name", "title"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();

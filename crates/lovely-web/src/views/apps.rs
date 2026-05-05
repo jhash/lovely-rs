@@ -2,6 +2,35 @@ use crate::views::{shell, ShellCtx};
 use lovely_db::{App, Collection, Page, User};
 use maud::{html, Markup};
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum AppTab {
+    Pages,
+    Data,
+    Settings,
+}
+
+/// Sub-nav rendered on every /apps/{slug}* page so users can jump
+/// between Pages, Data, and Settings without re-thinking the URL.
+pub fn app_subnav(app: &App, active: AppTab) -> Markup {
+    let tab = |label: &str, href: String, kind: AppTab| {
+        let is_active = active == kind;
+        html! {
+            a href=(href)
+                aria-current=[if is_active { Some("page") } else { None }]
+                class=[if is_active { Some("active") } else { None }] { (label) }
+        }
+    };
+    html! {
+        nav .app-subnav aria-label="App sections" {
+            div .app-subnav-inner {
+                (tab("Pages", format!("/apps/{}", app.slug), AppTab::Pages))
+                (tab("Data", format!("/apps/{}/data", app.slug), AppTab::Data))
+                (tab("Settings", format!("/apps/{}/settings", app.slug), AppTab::Settings))
+            }
+        }
+    }
+}
+
 pub fn apps_index(user: &User, apps: &[App], csrf_token: &str) -> Markup {
     let body = html! {
         div .page-header {
@@ -81,11 +110,10 @@ pub fn app_dashboard(
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / " (app.name)
-            " "
-            a href={"/apps/" (app.slug) "/settings"} .muted { "(settings)" }
         }
         h1 { (app.name) }
         @if let Some(d) = &app.description { p .muted { (d) } }
+        (app_subnav(app, AppTab::Pages))
 
         (pages_summary_section(user, app, pages))
         (data_summary_section(app, collections))
@@ -109,6 +137,7 @@ pub fn app_pages_index(user: &User, app: &App, pages: &[Page], csrf_token: &str)
             a href="/apps" { "Apps" } " / "
             a href={"/apps/" (app.slug)} { (app.name) } " / Pages"
         }
+        (app_subnav(app, AppTab::Pages))
         (pages_summary_section(user, app, pages))
     };
     shell(
@@ -165,7 +194,7 @@ fn data_summary_section(app: &App, collections: &[Collection]) -> Markup {
                 h2 {
                     a href={"/apps/" (app.slug) "/data"} { "Data" }
                 }
-                a href={"/apps/" (app.slug) "/data#new"} .button { "New collection" }
+                a href={"/apps/" (app.slug) "/data/new"} .button { "New collection" }
             }
             @if collections.is_empty() {
                 p .muted { "No collections yet." }
@@ -193,6 +222,7 @@ pub fn app_settings(user: &User, app: &App, csrf_token: &str) -> Markup {
             a href="/apps" { "Apps" } " / "
             a href={"/apps/" (app.slug)} { (app.name) } " / Settings"
         }
+        (app_subnav(app, AppTab::Settings))
         h1 { "Settings — " (app.name) }
 
         section .app-settings {

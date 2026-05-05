@@ -36,8 +36,28 @@ pub fn router(state: AppState) -> Router {
                 .post(handlers::data::post_collection_create),
         )
         .route(
+            "/apps/{app_slug}/data/new",
+            get(handlers::data::get_collection_new),
+        )
+        .route(
             "/apps/{app_slug}/data/{coll_name}",
             get(handlers::data::get_collection),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/edit",
+            get(handlers::data::get_collection_edit),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/fields",
+            post(handlers::data::post_field_add),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/fields/{field_name}/rename",
+            post(handlers::data::post_field_rename),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/fields/{field_name}/delete",
+            post(handlers::data::post_field_delete),
         )
         .route(
             "/apps/{app_slug}/data/{coll_name}/delete",

@@ -161,11 +161,7 @@ async fn create_collection_persists() {
     let r = app
         .client
         .post(format!("{}/apps/personal/data", app.url))
-        .form(&[
-            ("name", "posts"),
-            ("fields", "title,body"),
-            ("_csrf", &token),
-        ])
+        .form(&[("name", "posts"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
@@ -174,6 +170,16 @@ async fn create_collection_persists() {
         "create collection: {}",
         r.status()
     );
+    for f in ["title", "body"] {
+        let token = app.csrf_token().await.unwrap();
+        let _ = app
+            .client
+            .post(format!("{}/apps/personal/data/posts/fields", app.url))
+            .form(&[("name", f), ("_csrf", &token)])
+            .send()
+            .await
+            .unwrap();
+    }
 
     let r = app
         .client
@@ -200,14 +206,20 @@ async fn insert_record_persists_and_renders() {
     let _ = app
         .client
         .post(format!("{}/apps/personal/data", app.url))
-        .form(&[
-            ("name", "posts"),
-            ("fields", "title,body"),
-            ("_csrf", &token),
-        ])
+        .form(&[("name", "posts"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
+    for f in ["title", "body"] {
+        let token = app.csrf_token().await.unwrap();
+        let _ = app
+            .client
+            .post(format!("{}/apps/personal/data/posts/fields", app.url))
+            .form(&[("name", f), ("_csrf", &token)])
+            .send()
+            .await
+            .unwrap();
+    }
 
     let token = app.csrf_token().await.unwrap();
     let r = app
@@ -268,9 +280,16 @@ async fn bind_element_to_collection_field_renders_value() {
     let _ = app
         .client
         .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "site"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/site/fields", app.url))
         .form(&[
-            ("name", "site"),
-            ("fields", "tagline"),
+            ("name", "tagline"),
             ("_csrf", &token),
         ])
         .send()

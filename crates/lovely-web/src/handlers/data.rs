@@ -34,11 +34,22 @@ pub async fn get_data_index(
 pub struct CreateCollectionForm {
     #[serde(default)]
     pub name: String,
-    /// Comma-separated field names. Whitespace trimmed.
-    #[serde(default)]
-    pub fields: String,
     #[serde(default)]
     pub _csrf: Option<String>,
+}
+
+pub async fn get_collection_new(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = data_views::collection_new(&user, &app, &token, None).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
 }
 
 pub async fn post_collection_create(
@@ -58,21 +69,136 @@ pub async fn post_collection_create(
             "name must be 1–40 chars: a-z, 0-9, underscore".into(),
         ));
     }
-    let fields: Vec<String> = form
-        .fields
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    for f in &fields {
-        if !is_valid_ident(f) {
-            return Err(WebError::Unprocessable(format!(
-                "invalid field name: {f}"
-            )));
-        }
+    create_collection(&state.pg, app.id, &form.name, &[]).await?;
+    // Land on the field editor — fields get added one at a time there.
+    Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, form.name)).into_response())
+}
+
+pub async fn get_collection_edit(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, coll_name)): Path<(String, String)>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = data_views::collection_edit(&user, &app, &coll, &token).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
+}
+
+#[derive(Deserialize, Default)]
+pub struct AddFieldForm {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_field_add(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, coll_name)): Path<(String, String)>,
+    jar: CookieJar,
+    Form(form): Form<AddFieldForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if !is_valid_ident(&form.name) {
+        return Err(WebError::Unprocessable(
+            "field name must be 1–40 chars: a-z, 0-9, underscore".into(),
+        ));
     }
-    create_collection(&state.pg, app.id, &form.name, &fields).await?;
-    Ok(Redirect::to(&format!("/apps/{}/data/{}", app.slug, form.name)).into_response())
+    let mut fields = coll.fields();
+    if fields.iter().any(|f| f == &form.name) {
+        return Err(WebError::Unprocessable(format!(
+            "field already exists: {}",
+            form.name
+        )));
+    }
+    fields.push(form.name);
+    lovely_db::collections::set_collection_fields(&state.pg, coll.id, &fields).await?;
+    Ok(Redirect::to(&format!(
+        "/apps/{}/data/{}/edit",
+        app.slug, coll.name
+    ))
+    .into_response())
+}
+
+#[derive(Deserialize, Default)]
+pub struct RenameFieldForm {
+    #[serde(default)]
+    pub new_name: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_field_rename(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, coll_name, field_name)): Path<(String, String, String)>,
+    jar: CookieJar,
+    Form(form): Form<RenameFieldForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if !is_valid_ident(&form.new_name) {
+        return Err(WebError::Unprocessable(
+            "field name must be 1–40 chars: a-z, 0-9, underscore".into(),
+        ));
+    }
+    if form.new_name == field_name {
+        return Ok(Redirect::to(&format!(
+            "/apps/{}/data/{}/edit",
+            app.slug, coll.name
+        ))
+        .into_response());
+    }
+    lovely_db::collections::rename_field(&state.pg, coll.id, &field_name, &form.new_name).await?;
+    Ok(Redirect::to(&format!(
+        "/apps/{}/data/{}/edit",
+        app.slug, coll.name
+    ))
+    .into_response())
+}
+
+pub async fn post_field_delete(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, coll_name, field_name)): Path<(String, String, String)>,
+    jar: CookieJar,
+    Form(form): Form<DeleteForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    lovely_db::collections::delete_field(&state.pg, coll.id, &field_name).await?;
+    Ok(Redirect::to(&format!(
+        "/apps/{}/data/{}/edit",
+        app.slug, coll.name
+    ))
+    .into_response())
 }
 
 pub async fn get_collection(
