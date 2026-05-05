@@ -2,14 +2,22 @@ use crate::auth::{csrf, AuthUser};
 use crate::state::AppState;
 use crate::WebError;
 use axum::extract::{Path, State};
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
+use axum_htmx::HxRequest;
 use lovely_db::{find_app_by_owner_and_slug, find_page_by_app_and_slug};
 use lovely_tree::ElementTag;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
+
+fn hx_ok_preview_stale() -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));
+    (StatusCode::OK, headers, Html("")).into_response()
+}
 
 #[derive(Deserialize)]
 pub struct AddElementForm {
@@ -26,6 +34,7 @@ pub async fn post_add_element(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path((app_slug, page_slug)): Path<(String, String)>,
+    HxRequest(is_htmx): HxRequest,
     jar: CookieJar,
     Form(form): Form<AddElementForm>,
 ) -> Result<Response, WebError> {
@@ -72,6 +81,10 @@ pub async fn post_add_element(
         },
     )
     .await?;
+    lovely_db::snapshot_page(&state.pg, page.id).await?;
+    if is_htmx {
+        return Ok(hx_ok_preview_stale());
+    }
     Ok(Redirect::to(&format!(
         "/apps/{}/pages/{}/edit",
         app.slug,
@@ -90,6 +103,7 @@ pub async fn post_delete_element(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path((app_slug, page_slug, element_id)): Path<(String, String, Uuid)>,
+    HxRequest(is_htmx): HxRequest,
     jar: CookieJar,
     Form(form): Form<DeleteElementForm>,
 ) -> Result<Response, WebError> {
@@ -109,6 +123,10 @@ pub async fn post_delete_element(
         return Err(WebError::BadRequest("cannot delete root element".into()));
     }
     lovely_db::delete_element(&state.pg, element_id).await?;
+    lovely_db::snapshot_page(&state.pg, page.id).await?;
+    if is_htmx {
+        return Ok(hx_ok_preview_stale());
+    }
     Ok(Redirect::to(&format!(
         "/apps/{}/pages/{}/edit",
         app.slug,

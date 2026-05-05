@@ -1,6 +1,7 @@
 pub mod apps;
 pub mod collections;
 pub mod elements;
+pub mod revisions;
 pub mod errors;
 pub mod oauth;
 pub mod pages;
@@ -12,7 +13,7 @@ pub mod users;
 pub use apps::{
     count_apps_for_owner, create_app, delete_app, find_app_by_owner_and_slug,
     find_default_app_for_owner, find_default_app_for_username, list_apps_by_owner, update_app,
-    App, AppPatch, NewApp,
+    update_app_theme, App, AppPatch, NewApp,
 };
 pub use collections::{
     create_collection, delete_collection, delete_record, find_collection_by_name,
@@ -26,9 +27,10 @@ pub use errors::DbError;
 pub use oauth::{upsert_oauth_identity, OAuthIdentity, UpsertOAuth};
 pub use pages::{
     create_page, delete_page, find_page_by_app_and_slug, find_page_by_id, list_pages_in_app,
-    update_page, NewPage, Page, PagePatch,
+    update_page, update_page_access, update_page_head, NewPage, Page, PagePatch,
 };
 pub use pg::{connect, run_migrations, PgConfig, MIGRATOR};
+pub use revisions::{snapshot_page, step as revision_step, Direction as RevisionDirection};
 pub use sessions::{
     create_session, delete_all_sessions_for_user, delete_session, find_session,
     purge_expired_sessions, NewSession, Session,

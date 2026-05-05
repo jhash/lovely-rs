@@ -43,6 +43,7 @@ pub fn published_page(
     viewer: Option<&User>,
     owner_id: uuid::Uuid,
     app_slug: &str,
+    theme_json: &serde_json::Value,
     page: &Page,
     rendered_tree: Markup,
     csrf_token: &str,
@@ -54,6 +55,12 @@ pub fn published_page(
         page.slug.clone()
     };
     let edit_href = format!("/apps/{app_slug}/pages/{edit_segment}/edit");
+    let theme_css = theme_to_css(theme_json);
+    let extra_head = if page.head_html.is_empty() {
+        None
+    } else {
+        Some(page.head_html.as_str())
+    };
     // Public pages are 100% the user's. No app-injected h1/description.
     let body = html! {
         (PreEscaped(rendered_tree.into_string()))
@@ -67,6 +74,49 @@ pub fn published_page(
         },
         Some(&edit_href),
         is_owner,
+        theme_css,
+        extra_head,
         body,
     )
+}
+
+pub fn password_gate(page: &Page, username: &str, slug: &str, csrf_token: &str) -> Markup {
+    let body = html! {
+        article .password-gate {
+            h1 { "Password required" }
+            p .muted { "This page is protected. Enter the password to continue." }
+            form method="post" action={"/p/" (username) "/" (slug) "/_unlock"} .auth-form {
+                input type="hidden" name="_csrf" value=(csrf_token);
+                label {
+                    "Password"
+                    input type="password" name="password" required autofocus;
+                }
+                button type="submit" { "Unlock" }
+            }
+        }
+    };
+    shell(
+        ShellCtx {
+            title: &format!("{} — Locked", page.title),
+            description: None,
+            user: None,
+            csrf_token,
+        },
+        body,
+    )
+}
+
+fn theme_to_css(theme: &serde_json::Value) -> Option<String> {
+    let map = theme.as_object()?;
+    if map.is_empty() {
+        return None;
+    }
+    let mut s = String::from(":root {");
+    for (k, v) in map {
+        if let Some(value) = v.as_str() {
+            s.push_str(&format!(" --lovely-{k}: {value};"));
+        }
+    }
+    s.push('}');
+    Some(s)
 }

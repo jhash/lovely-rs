@@ -188,6 +188,52 @@ pub async fn post_app_delete(
     Ok(Redirect::to("/apps").into_response())
 }
 
+#[derive(Deserialize, Default)]
+pub struct ThemeForm {
+    #[serde(default)]
+    pub primary: Option<String>,
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub ink: Option<String>,
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_app_theme(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+    Form(form): Form<ThemeForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let mut obj = serde_json::Map::new();
+    let put = |obj: &mut serde_json::Map<String, serde_json::Value>, key: &str, val: Option<&str>| {
+        if let Some(v) = val.filter(|s| !s.is_empty()) {
+            // Whitelist a small set of value-grammars to keep CSS sane.
+            let ok = v
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ",.-_# ()%/".contains(c));
+            if ok {
+                obj.insert(key.to_string(), serde_json::Value::String(v.to_string()));
+            }
+        }
+    };
+    put(&mut obj, "primary", form.primary.as_deref());
+    put(&mut obj, "background", form.background.as_deref());
+    put(&mut obj, "ink", form.ink.as_deref());
+    put(&mut obj, "font", form.font.as_deref());
+    lovely_db::update_app_theme(&state.pg, app.id, serde_json::Value::Object(obj)).await?;
+    Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response())
+}
+
 // Legacy redirects so old /pages URLs still land somewhere.
 pub async fn redirect_pages_index() -> Redirect {
     Redirect::to("/apps")

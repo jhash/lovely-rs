@@ -14,6 +14,12 @@ pub struct Page {
     pub root_element: Option<Uuid>,
     pub author_id: Uuid,
     pub published_at: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub head_html: String,
+    #[sqlx(default)]
+    pub password_hash: Option<String>,
+    #[sqlx(default)]
+    pub unlisted: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -29,7 +35,7 @@ pub struct NewPage {
 }
 
 const PAGE_COLUMNS: &str = "id, app_id, slug, title, description, root_element, author_id, \
-     published_at, created_at, updated_at";
+     published_at, head_html, password_hash, unlisted, created_at, updated_at";
 
 /// Creates a page row plus a root element row in one transaction.
 pub async fn create_page(pool: &PgPool, new: NewPage) -> Result<(Page, Uuid), DbError> {
@@ -136,6 +142,32 @@ pub async fn update_page(pool: &PgPool, id: Uuid, patch: PagePatch) -> Result<Pa
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+pub async fn update_page_head(pool: &PgPool, id: Uuid, head_html: &str) -> Result<(), DbError> {
+    sqlx::query("UPDATE pages SET head_html = $2, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(head_html)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_page_access(
+    pool: &PgPool,
+    id: Uuid,
+    password_hash: Option<&str>,
+    unlisted: bool,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE pages SET password_hash = $2, unlisted = $3, updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(password_hash)
+    .bind(unlisted)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub async fn delete_page(pool: &PgPool, id: Uuid) -> Result<u64, DbError> {

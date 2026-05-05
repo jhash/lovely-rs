@@ -14,7 +14,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
-use lovely_db::{find_app_by_owner_and_slug, find_page_by_app_and_slug, ElementPatch};
+use lovely_db::{
+    find_app_by_owner_and_slug, find_page_by_app_and_slug, revision_step, ElementPatch,
+    RevisionDirection,
+};
 use lovely_tree::AttrName;
 use serde::Deserialize;
 use serde_json::json;
@@ -110,6 +113,10 @@ pub struct PatchElementForm {
     pub binding_collection: Option<String>,
     #[serde(default)]
     pub binding_field: Option<String>,
+    /// Repeat this element's first child once per record in the named
+    /// collection. Stored as `data-lovely-repeat=<collection>`.
+    #[serde(default)]
+    pub repeat_collection: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -181,6 +188,35 @@ pub async fn patch_element(
         patch.payload = Some(json!({ "text": text }));
     }
 
+    // Apply repeat update if present. Stored as `data-lovely-repeat`.
+    if let Some(coll) = form.repeat_collection.as_deref() {
+        let merged = match patch.attrs.take() {
+            Some(serde_json::Value::Object(o)) => o,
+            _ => {
+                let current: Option<serde_json::Value> =
+                    sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+                        .bind(element_id)
+                        .fetch_optional(&state.pg)
+                        .await
+                        .map_err(lovely_db::DbError::Sqlx)?;
+                match current {
+                    Some(serde_json::Value::Object(o)) => o,
+                    _ => serde_json::Map::new(),
+                }
+            }
+        };
+        let mut merged = merged;
+        if coll.is_empty() {
+            merged.remove("data-lovely-repeat");
+        } else {
+            merged.insert(
+                "data-lovely-repeat".to_string(),
+                serde_json::Value::String(coll.to_string()),
+            );
+        }
+        patch.attrs = Some(serde_json::Value::Object(merged));
+    }
+
     // Apply binding update if present. Stored as `data-lovely-bind` attr.
     if let Some(coll) = form.binding_collection.as_deref() {
         let field = form.binding_field.as_deref().unwrap_or("");
@@ -219,8 +255,64 @@ pub async fn patch_element(
 
     if patch.attrs.is_some() || patch.payload.is_some() {
         lovely_db::update_element(&state.pg, element_id, patch).await?;
+        lovely_db::snapshot_page(&state.pg, page.id).await?;
     }
 
+    let mut headers = HeaderMap::new();
+    headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));
+    Ok((StatusCode::OK, headers, Html("")).into_response())
+}
+
+#[derive(Deserialize, Default)]
+pub struct UndoForm {
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn post_undo(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug)): Path<(String, String)>,
+    jar: CookieJar,
+    Form(form): Form<UndoForm>,
+) -> Result<Response, WebError> {
+    step_revision(&state, user.id, &app_slug, &page_slug, jar, form._csrf, RevisionDirection::Undo)
+        .await
+}
+
+pub async fn post_redo(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug)): Path<(String, String)>,
+    jar: CookieJar,
+    Form(form): Form<UndoForm>,
+) -> Result<Response, WebError> {
+    step_revision(&state, user.id, &app_slug, &page_slug, jar, form._csrf, RevisionDirection::Redo)
+        .await
+}
+
+async fn step_revision(
+    state: &AppState,
+    user_id: Uuid,
+    app_slug: &str,
+    page_slug: &str,
+    jar: CookieJar,
+    csrf_in: Option<String>,
+    dir: RevisionDirection,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), csrf_in.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user_id, app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let real_slug = super::pages::decode_slug_segment(page_slug);
+    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    if page.author_id != user_id {
+        return Err(WebError::Forbidden);
+    }
+    revision_step(&state.pg, page.id, dir).await?;
     let mut headers = HeaderMap::new();
     headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));
     Ok((StatusCode::OK, headers, Html("")).into_response())
@@ -307,6 +399,7 @@ pub async fn post_move_element(
     .execute(&state.pg)
     .await
     .map_err(lovely_db::DbError::Sqlx)?;
+    lovely_db::snapshot_page(&state.pg, page.id).await?;
 
     let mut headers = HeaderMap::new();
     headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));

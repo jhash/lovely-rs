@@ -43,12 +43,21 @@ pub fn public_shell(
     ctx: ShellCtx<'_>,
     edit_href: Option<&str>,
     is_owner: bool,
+    theme_css: Option<String>,
+    extra_head: Option<&str>,
     body: Markup,
 ) -> Markup {
+    use maud::PreEscaped;
     html! {
         (DOCTYPE)
         html lang="en" {
             (head_common(&ctx))
+            @if let Some(css) = theme_css {
+                style { (PreEscaped(css)) }
+            }
+            @if let Some(extra) = extra_head {
+                (PreEscaped(extra.to_string()))
+            }
             body class="public" {
                 (body)
                 @if is_owner {

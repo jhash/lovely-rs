@@ -137,6 +137,32 @@ pub fn app_dashboard(user: &User, app: &App, pages: &[Page], csrf_token: &str) -
                 }
             }
         }
+        section .app-settings {
+            h2 { "Theme" }
+            p .muted { "Variables become CSS custom properties on every public page in this app: --lovely-primary, --lovely-background, --lovely-ink, --lovely-font." }
+            form method="post" action={"/apps/" (app.slug) "/theme"} .auth-form {
+                input type="hidden" name="_csrf" value=(csrf_token);
+                @let theme = app.theme_json.as_object();
+                @let get = |k: &str| theme.and_then(|m| m.get(k)).and_then(|v| v.as_str()).unwrap_or("");
+                label {
+                    "Primary color"
+                    input type="text" name="primary" value=(get("primary")) placeholder="#c026d3";
+                }
+                label {
+                    "Background color"
+                    input type="text" name="background" value=(get("background")) placeholder="#ffffff";
+                }
+                label {
+                    "Ink color"
+                    input type="text" name="ink" value=(get("ink")) placeholder="#000000";
+                }
+                label {
+                    "Font family"
+                    input type="text" name="font" value=(get("font")) placeholder="Lora, serif";
+                }
+                button type="submit" { "Save theme" }
+            }
+        }
     };
     shell(
         ShellCtx {

@@ -128,6 +128,29 @@
     var tree = document.getElementById("tree");
     if (tree) wireSortable(tree);
   });
+
+  // Cmd-Z / Cmd-Shift-Z on the editor page → POST /undo or /redo
+  document.addEventListener("keydown", function (e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+    var path = window.location.pathname;
+    var m = path.match(/^(\/apps\/[^/]+\/pages\/[^/]+)\/edit/);
+    if (!m) return;
+    e.preventDefault();
+    var url = m[1] + (e.shiftKey ? "/redo" : "/undo");
+    var token = readCookie("csrf_token") || "";
+    var body = new URLSearchParams();
+    body.set("_csrf", token);
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-CSRF-Token": token,
+      },
+      body: body.toString(),
+    }).then(function () {
+      document.dispatchEvent(new CustomEvent("preview-stale"));
+    });
+  });
   document.addEventListener("htmx:afterSwap", function (e) {
     if (e.target && e.target.id === "tree") wireSortable(e.target);
   });

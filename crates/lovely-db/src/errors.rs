@@ -28,4 +28,7 @@ pub enum DbError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error("snapshot decode: {0}")]
+    SnapshotDecode(String),
 }

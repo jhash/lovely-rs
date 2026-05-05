@@ -6,7 +6,7 @@
 
 use crate::views::{builder_shell, ShellCtx};
 use lovely_db::{App, Collection, Page, User};
-use lovely_tree::ElementRow;
+use lovely_tree::{ElementRow, ElementTag};
 use maud::{html, Markup};
 use uuid::Uuid;
 
@@ -132,6 +132,22 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
                 a href={"/apps/" (ctx.app.slug)} { (ctx.app.name) } " / "
                 @if ctx.page.slug.is_empty() { "(home)" } @else { (ctx.page.slug) }
             }
+            div .topbar-history {
+                form
+                    hx-post=(format!("/apps/{}/pages/{}/undo", ctx.app.slug, edit_segment))
+                    hx-swap="none"
+                    .inline-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    button type="submit" title="Undo (Cmd-Z)" { "↶" }
+                }
+                form
+                    hx-post=(format!("/apps/{}/pages/{}/redo", ctx.app.slug, edit_segment))
+                    hx-swap="none"
+                    .inline-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    button type="submit" title="Redo (Cmd-Shift-Z)" { "↷" }
+                }
+            }
             div .spacer {}
             form method="post"
                  action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment)}
@@ -143,6 +159,38 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
                         checked[ctx.page.published_at.is_some()]
                         onchange="this.form.submit()";
                     " Published"
+                }
+            }
+            details .topbar-settings {
+                summary { "Settings" }
+                div .topbar-settings-panel {
+                    h4 { "Custom <head> HTML" }
+                    p .muted { "Sanitized: no <script> or on* attrs." }
+                    form method="post"
+                         action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment) "/head"}
+                         .auth-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        textarea name="head_html" rows="4" {
+                            (ctx.page.head_html)
+                        }
+                        button type="submit" { "Save" }
+                    }
+                    h4 { "Access" }
+                    form method="post"
+                         action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment) "/access"}
+                         .auth-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        label {
+                            "Password (leave blank to remove)"
+                            input type="password" name="password" placeholder=
+                                @if ctx.page.password_hash.is_some() { "currently set" } @else { "no password" };
+                        }
+                        label .checkbox {
+                            input type="checkbox" name="unlisted" value="on" checked[ctx.page.unlisted];
+                            " Unlisted (404 unless owner)"
+                        }
+                        button type="submit" { "Save" }
+                    }
                 }
             }
             a href=(public_path) target="_blank" rel="noopener" { "View public ↗" }
@@ -277,6 +325,7 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                     InspectorTab::Style => (style_tab(ctx, row)),
                 }
             }
+            (add_child_form(ctx, row))
             @if ctx.page.root_element != Some(row.id.into_inner()) {
                 form
                     hx-post=(format!("/apps/{}/pages/{}/elements/{}/delete",
@@ -290,6 +339,36 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
             }
         } @else {
             p .muted { "No element selected." }
+        }
+    }
+}
+
+fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
+    let edit_segment = page_segment(&ctx.page.slug);
+    html! {
+        div .inspector-add-child {
+            h3 { "Add child element" }
+            form
+                hx-post=(format!("/apps/{}/pages/{}/elements",
+                    ctx.app.slug, edit_segment))
+                hx-swap="none"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                input type="hidden" name="parent_id" value=(row.id);
+                label {
+                    "Tag"
+                    select name="tag" required {
+                        @for tag in ElementTag::ALL {
+                            option value=(tag.name()) { (tag.name()) }
+                        }
+                    }
+                }
+                label {
+                    "Text content (optional)"
+                    input type="text" name="text";
+                }
+                button type="submit" { "Add child" }
+            }
         }
     }
 }

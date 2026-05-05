@@ -27,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/apps/{app_slug}", get(handlers::apps::get_app_dashboard))
         .route("/apps/{app_slug}/rename", post(handlers::apps::post_app_rename))
         .route("/apps/{app_slug}/delete", post(handlers::apps::post_app_delete))
+        .route("/apps/{app_slug}/theme", post(handlers::apps::post_app_theme))
         // --- data (collections + records) ---
         .route("/apps/{app_slug}/data", get(handlers::data::get_data_index))
         .route("/apps/{app_slug}/data", post(handlers::data::post_collection_create))
@@ -67,6 +68,18 @@ pub fn router(state: AppState) -> Router {
             get(handlers::pages::get_page_preview),
         )
         .route(
+            "/apps/{app_slug}/pages/{page_slug}/head",
+            post(handlers::pages::post_page_head),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/access",
+            post(handlers::pages::post_page_access),
+        )
+        .route(
+            "/p/{username}/{slug}/_unlock",
+            post(handlers::pages::post_page_unlock),
+        )
+        .route(
             "/apps/{app_slug}/pages/{page_slug}/tree",
             get(handlers::builder::get_tree_fragment),
         )
@@ -81,6 +94,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/apps/{app_slug}/pages/{page_slug}/elements/{element_id}/move",
             post(handlers::builder::post_move_element),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/undo",
+            post(handlers::builder::post_undo),
+        )
+        .route(
+            "/apps/{app_slug}/pages/{page_slug}/redo",
+            post(handlers::builder::post_redo),
         )
         .route(
             "/apps/{app_slug}/pages/{page_slug}",

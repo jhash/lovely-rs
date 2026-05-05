@@ -433,6 +433,43 @@ body.builder .builder-topbar {
   font-size: 0.8rem;
 }
 body.builder .builder-topbar .spacer { flex: 1; }
+body.builder .builder-topbar .topbar-history {
+  display: flex;
+  gap: var(--space-1);
+}
+body.builder .builder-topbar .topbar-history button {
+  padding: 2px 8px;
+  border: 1px solid var(--soft-border);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+body.builder .topbar-settings { position: relative; }
+body.builder .topbar-settings summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-1) var(--space-2);
+}
+body.builder .topbar-settings summary::-webkit-details-marker { display: none; }
+body.builder .topbar-settings[open] summary { color: var(--accent); }
+body.builder .topbar-settings-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 320px;
+  padding: var(--space-3);
+  background: var(--paper);
+  border: 1px solid var(--soft-border);
+  border-radius: var(--radius-1);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  z-index: 100;
+}
+body.builder .topbar-settings-panel h4 {
+  font-size: 0.85rem;
+  margin: var(--space-3) 0 var(--space-2);
+}
+body.builder .topbar-settings-panel h4:first-child { margin-top: 0; }
+.password-gate { max-width: 32rem; margin: 4rem auto; padding: 0 var(--space-4); }
 body.builder .builder-topbar .breadcrumbs { margin: 0; font-size: 0.85rem; }
 body.builder .builder-topbar .topbar-publish label.checkbox {
   flex-direction: row;
@@ -556,6 +593,18 @@ li[aria-current="true"] > .tree-row {
 }
 .attrs-list li:last-child { border-bottom: 0; }
 .inspector-delete { margin-top: var(--space-4); }
+.inspector-add-child {
+  margin-top: var(--space-6);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--soft-border);
+}
+.inspector-add-child h3 { font-size: 0.85rem; margin-bottom: var(--space-2); }
+.data-binding {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+.data-binding h3 { font-size: 0.85rem; margin-bottom: var(--space-2); }
 
 /* Stack the layout on narrow screens. */
 @media (max-width: 64rem) {
