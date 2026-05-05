@@ -26,6 +26,24 @@ impl NewNode {
     }
 }
 
+/// Position relative to a target used by [`Tree::move_to`].
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Position {
+    AppendChild,
+    PrependChild,
+    Before(NodeId),
+    After(NodeId),
+}
+
+/// Partial update for [`Tree::update`]. `None` fields are left as-is.
+/// `Some(Some(value))` sets, `Some(None)` clears.
+#[derive(Default, Debug, Clone)]
+pub struct NodePatch {
+    pub attrs: Option<AttrList>,
+    pub text: Option<Option<String>>,
+    pub tag: Option<ElementTag>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub uuid: ElementUuid,
@@ -115,11 +133,7 @@ impl Tree {
         Ok(id)
     }
 
-    pub fn insert_before(
-        &mut self,
-        sibling: NodeId,
-        node: NewNode,
-    ) -> Result<NodeId, TreeError> {
+    pub fn insert_before(&mut self, sibling: NodeId, node: NewNode) -> Result<NodeId, TreeError> {
         let target = self.get(sibling).ok_or(TreeError::NotFound(sibling))?;
         let parent = target.parent.ok_or(TreeError::CannotMoveRoot)?;
         let prev = target.prev_sibling;
@@ -134,11 +148,7 @@ impl Tree {
         Ok(id)
     }
 
-    pub fn insert_after(
-        &mut self,
-        sibling: NodeId,
-        node: NewNode,
-    ) -> Result<NodeId, TreeError> {
+    pub fn insert_after(&mut self, sibling: NodeId, node: NewNode) -> Result<NodeId, TreeError> {
         let target = self.get(sibling).ok_or(TreeError::NotFound(sibling))?;
         let parent = target.parent.ok_or(TreeError::CannotMoveRoot)?;
         let next = target.next_sibling;
@@ -151,6 +161,149 @@ impl Tree {
         self.nodes[sibling].next_sibling = Some(id);
         self.debug_assert_invariants();
         Ok(id)
+    }
+
+    pub fn remove(&mut self, id: NodeId) -> Result<(), TreeError> {
+        if id == self.root {
+            return Err(TreeError::CannotMoveRoot);
+        }
+        let node = self.nodes.get(id).ok_or(TreeError::NotFound(id))?.clone();
+        self.detach_links(id, &node);
+        let mut stack = vec![id];
+        while let Some(cur) = stack.pop() {
+            let cur_node = self.nodes.remove(cur).expect("stack only holds live ids");
+            self.by_uuid.remove(&cur_node.uuid);
+            let mut child = cur_node.first_child;
+            while let Some(c) = child {
+                stack.push(c);
+                child = self.nodes.get(c).and_then(|n| n.next_sibling);
+            }
+        }
+        self.debug_assert_invariants();
+        Ok(())
+    }
+
+    pub fn move_to(
+        &mut self,
+        id: NodeId,
+        new_parent: NodeId,
+        position: Position,
+    ) -> Result<(), TreeError> {
+        if id == self.root {
+            return Err(TreeError::CannotMoveRoot);
+        }
+        self.node_exists(id)?;
+        self.node_exists(new_parent)?;
+        // Cycle check: walk ancestors of new_parent (and new_parent itself).
+        let mut a = Some(new_parent);
+        while let Some(cur) = a {
+            if cur == id {
+                return Err(TreeError::WouldCycle {
+                    child: id,
+                    ancestor: new_parent,
+                });
+            }
+            a = self.nodes.get(cur).and_then(|n| n.parent);
+        }
+        let original = self.nodes[id].clone();
+        self.detach_links(id, &original);
+        self.nodes[id].parent = None;
+        self.nodes[id].prev_sibling = None;
+        self.nodes[id].next_sibling = None;
+        match position {
+            Position::AppendChild => {
+                let prev = self.nodes[new_parent].last_child;
+                self.nodes[id].parent = Some(new_parent);
+                self.nodes[id].prev_sibling = prev;
+                if let Some(p) = prev {
+                    self.nodes[p].next_sibling = Some(id);
+                } else {
+                    self.nodes[new_parent].first_child = Some(id);
+                }
+                self.nodes[new_parent].last_child = Some(id);
+            }
+            Position::PrependChild => {
+                let next = self.nodes[new_parent].first_child;
+                self.nodes[id].parent = Some(new_parent);
+                self.nodes[id].next_sibling = next;
+                if let Some(n) = next {
+                    self.nodes[n].prev_sibling = Some(id);
+                } else {
+                    self.nodes[new_parent].last_child = Some(id);
+                }
+                self.nodes[new_parent].first_child = Some(id);
+            }
+            Position::Before(sibling) => {
+                let parent = self
+                    .nodes
+                    .get(sibling)
+                    .ok_or(TreeError::NotFound(sibling))?
+                    .parent
+                    .ok_or(TreeError::CannotMoveRoot)?;
+                let prev = self.nodes[sibling].prev_sibling;
+                self.nodes[id].parent = Some(parent);
+                self.nodes[id].prev_sibling = prev;
+                self.nodes[id].next_sibling = Some(sibling);
+                self.nodes[sibling].prev_sibling = Some(id);
+                match prev {
+                    Some(p) => self.nodes[p].next_sibling = Some(id),
+                    None => self.nodes[parent].first_child = Some(id),
+                }
+            }
+            Position::After(sibling) => {
+                let parent = self
+                    .nodes
+                    .get(sibling)
+                    .ok_or(TreeError::NotFound(sibling))?
+                    .parent
+                    .ok_or(TreeError::CannotMoveRoot)?;
+                let next = self.nodes[sibling].next_sibling;
+                self.nodes[id].parent = Some(parent);
+                self.nodes[id].prev_sibling = Some(sibling);
+                self.nodes[id].next_sibling = next;
+                self.nodes[sibling].next_sibling = Some(id);
+                match next {
+                    Some(n) => self.nodes[n].prev_sibling = Some(id),
+                    None => self.nodes[parent].last_child = Some(id),
+                }
+            }
+        }
+        self.debug_assert_invariants();
+        Ok(())
+    }
+
+    pub fn update(&mut self, id: NodeId, patch: NodePatch) -> Result<(), TreeError> {
+        let n = self.nodes.get_mut(id).ok_or(TreeError::NotFound(id))?;
+        if let Some(a) = patch.attrs {
+            n.attrs = a;
+        }
+        if let Some(t) = patch.text {
+            n.text = t;
+        }
+        if let Some(tag) = patch.tag {
+            n.tag = tag;
+        }
+        Ok(())
+    }
+
+    /// Unlink a node from its parent's child list and its sibling chain,
+    /// without removing it from the slotmap. Used by both `remove` and
+    /// `move_to`.
+    fn detach_links(&mut self, id: NodeId, snapshot: &Node) {
+        if let Some(parent) = snapshot.parent {
+            if self.nodes[parent].first_child == Some(id) {
+                self.nodes[parent].first_child = snapshot.next_sibling;
+            }
+            if self.nodes[parent].last_child == Some(id) {
+                self.nodes[parent].last_child = snapshot.prev_sibling;
+            }
+        }
+        if let Some(p) = snapshot.prev_sibling {
+            self.nodes[p].next_sibling = snapshot.next_sibling;
+        }
+        if let Some(n) = snapshot.next_sibling {
+            self.nodes[n].prev_sibling = snapshot.prev_sibling;
+        }
     }
 
     fn insert_node(
@@ -219,7 +372,9 @@ impl Tree {
                     return Err(format!("{id:?}.prev_sibling -> {p:?} not reciprocal"));
                 }
                 if prev.parent != node.parent {
-                    return Err(format!("{id:?} and prev sibling {p:?} have different parents"));
+                    return Err(format!(
+                        "{id:?} and prev sibling {p:?} have different parents"
+                    ));
                 }
             }
             if let Some(n) = node.next_sibling {
@@ -238,10 +393,14 @@ impl Tree {
                     .get(p)
                     .ok_or_else(|| format!("{id:?} parent {p:?} dangling"))?;
                 if node.prev_sibling.is_none() && parent.first_child != Some(id) {
-                    return Err(format!("{id:?} has no prev_sibling but parent.first_child != self"));
+                    return Err(format!(
+                        "{id:?} has no prev_sibling but parent.first_child != self"
+                    ));
                 }
                 if node.next_sibling.is_none() && parent.last_child != Some(id) {
-                    return Err(format!("{id:?} has no next_sibling but parent.last_child != self"));
+                    return Err(format!(
+                        "{id:?} has no next_sibling but parent.last_child != self"
+                    ));
                 }
             }
         }
@@ -252,6 +411,7 @@ impl Tree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AttrName;
 
     #[test]
     fn new_tree_has_root() {
@@ -348,7 +508,8 @@ mod tests {
     fn append_child_rejects_duplicate_uuid() {
         let (mut tree, root) = fresh();
         let dup = ElementUuid::new_v4();
-        tree.append_child(root, NewNode::new(dup, ElementTag::P)).unwrap();
+        tree.append_child(root, NewNode::new(dup, ElementTag::P))
+            .unwrap();
         let err = tree
             .append_child(root, NewNode::new(dup, ElementTag::P))
             .unwrap_err();
@@ -360,6 +521,108 @@ mod tests {
         let (mut tree, root) = fresh();
         let err = tree.insert_before(root, nn(ElementTag::P)).unwrap_err();
         assert!(matches!(err, TreeError::CannotMoveRoot));
+    }
+
+    #[test]
+    fn remove_unlinks_subtree() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let b = tree.append_child(a, nn(ElementTag::Span)).unwrap();
+        let _c = tree.append_child(b, nn(ElementTag::Em)).unwrap();
+        let d = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let n_before = tree.len();
+        tree.remove(a).unwrap();
+        assert!(tree.get(a).is_none());
+        assert_eq!(tree.len(), n_before - 3);
+        // Root now has only d.
+        assert_eq!(tree.get(root).unwrap().first_child, Some(d));
+        assert_eq!(tree.get(root).unwrap().last_child, Some(d));
+        assert_eq!(tree.get(d).unwrap().prev_sibling, None);
+        tree.debug_assert_invariants();
+    }
+
+    #[test]
+    fn remove_root_fails() {
+        let (mut tree, root) = fresh();
+        let err = tree.remove(root).unwrap_err();
+        assert!(matches!(err, TreeError::CannotMoveRoot));
+    }
+
+    #[test]
+    fn remove_middle_sibling_relinks() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let b = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let c = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        tree.remove(b).unwrap();
+        assert_eq!(tree.get(a).unwrap().next_sibling, Some(c));
+        assert_eq!(tree.get(c).unwrap().prev_sibling, Some(a));
+        tree.debug_assert_invariants();
+    }
+
+    #[test]
+    fn move_to_rejects_cycle() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let b = tree.append_child(a, nn(ElementTag::P)).unwrap();
+        let err = tree.move_to(a, b, Position::AppendChild).unwrap_err();
+        assert!(matches!(err, TreeError::WouldCycle { .. }));
+    }
+
+    #[test]
+    fn move_to_rejects_self_into_self() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let err = tree.move_to(a, a, Position::AppendChild).unwrap_err();
+        assert!(matches!(err, TreeError::WouldCycle { .. }));
+    }
+
+    #[test]
+    fn move_to_appends_under_new_parent() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let b = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        tree.move_to(b, a, Position::AppendChild).unwrap();
+        assert_eq!(tree.get(b).unwrap().parent, Some(a));
+        assert_eq!(tree.get(a).unwrap().first_child, Some(b));
+        assert_eq!(tree.get(a).unwrap().last_child, Some(b));
+        assert_eq!(tree.get(root).unwrap().last_child, Some(a));
+        tree.debug_assert_invariants();
+    }
+
+    #[test]
+    fn move_to_before_sibling() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let b = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let c = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        // Move c before b. Order becomes a, c, b.
+        tree.move_to(c, root, Position::Before(b)).unwrap();
+        assert_eq!(tree.get(a).unwrap().next_sibling, Some(c));
+        assert_eq!(tree.get(c).unwrap().next_sibling, Some(b));
+        assert_eq!(tree.get(b).unwrap().prev_sibling, Some(c));
+        tree.debug_assert_invariants();
+    }
+
+    #[test]
+    fn update_changes_attrs_and_text() {
+        let (mut tree, root) = fresh();
+        let a = tree.append_child(root, nn(ElementTag::P)).unwrap();
+        let mut new_attrs = AttrList::new();
+        new_attrs.push(AttrName::new("class").unwrap(), "highlight");
+        tree.update(
+            a,
+            NodePatch {
+                attrs: Some(new_attrs),
+                text: Some(Some("hi".into())),
+                tag: Some(ElementTag::H1),
+            },
+        )
+        .unwrap();
+        let n = tree.get(a).unwrap();
+        assert_eq!(n.attrs.len(), 1);
+        assert_eq!(n.text.as_deref(), Some("hi"));
+        assert_eq!(n.tag, ElementTag::H1);
     }
 
     #[test]

@@ -10,10 +10,7 @@ pub enum TreeError {
     UnknownUuid(ElementUuid),
 
     #[error("would create cycle: moving {child:?} into {ancestor:?}")]
-    WouldCycle {
-        child: NodeId,
-        ancestor: NodeId,
-    },
+    WouldCycle { child: NodeId, ancestor: NodeId },
 
     #[error("invalid attribute name: {0:?}")]
     InvalidAttribute(String),
