@@ -22,7 +22,34 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/logout", post(handlers::auth_username::post_logout))
         // --- apps + editor ---
         .route("/apps", get(handlers::apps::get_apps_index))
+        .route("/apps", post(handlers::apps::post_apps_create))
+        .route("/apps/new", get(handlers::apps::get_apps_new))
         .route("/apps/{app_slug}", get(handlers::apps::get_app_dashboard))
+        .route("/apps/{app_slug}/rename", post(handlers::apps::post_app_rename))
+        .route("/apps/{app_slug}/delete", post(handlers::apps::post_app_delete))
+        // --- data (collections + records) ---
+        .route("/apps/{app_slug}/data", get(handlers::data::get_data_index))
+        .route("/apps/{app_slug}/data", post(handlers::data::post_collection_create))
+        .route(
+            "/apps/{app_slug}/data/{coll_name}",
+            get(handlers::data::get_collection),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/delete",
+            post(handlers::data::post_collection_delete),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/records",
+            post(handlers::data::post_record_create),
+        )
+        .route(
+            "/apps/{app_slug}/data/{coll_name}/records/delete",
+            post(handlers::data::post_record_delete),
+        )
+        .route(
+            "/p/{username}/{slug}/_submit/{coll_name}",
+            post(handlers::data::post_public_submit),
+        )
         .route(
             "/apps/{app_slug}/pages/new",
             get(handlers::pages::get_pages_new),

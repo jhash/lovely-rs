@@ -237,6 +237,22 @@ code, pre { font-family: var(--font-mono); }
 
 /* Utility */
 .muted { color: var(--muted-ink); }
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.app-settings {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--soft-border);
+}
 .lead { color: var(--muted-ink); font-size: 1.1rem; margin-bottom: var(--space-4); }
 
 /* Breadcrumbs */
@@ -391,14 +407,18 @@ button.danger:hover, .button.danger:hover {
 
 /* ============================================================ */
 /* Full-screen builder layout (body.builder)                     */
+/*                                                               */
+/* Figma-style: fixed-width sidebars, canvas claims everything   */
+/* in between. No max-width — the editor is *full* width.        */
 /* ============================================================ */
 body.builder { overflow: hidden; }
 body.builder main { display: contents; }
 body.builder .builder-grid {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
-  grid-template-rows: 40px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-rows: 36px 1fr;
   height: calc(100vh - 36px);
+  width: 100%;
   background: var(--paper);
 }
 body.builder .builder-topbar {
@@ -410,7 +430,7 @@ body.builder .builder-topbar {
   padding: 0 var(--space-3);
   border-top: 1px solid var(--soft-border);
   border-bottom: 1px solid var(--soft-border);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 body.builder .builder-topbar .spacer { flex: 1; }
 body.builder .builder-topbar .breadcrumbs { margin: 0; font-size: 0.85rem; }
@@ -428,14 +448,22 @@ body.builder .builder-tree {
 }
 body.builder .builder-canvas {
   grid-row: 2;
+  grid-column: 2;
   position: relative;
   background: var(--hairline);
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  min-width: 0;
+  padding: var(--space-4);
 }
 body.builder .builder-canvas iframe {
   width: 100%;
   height: 100%;
   border: 0;
   background: var(--paper);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-1);
 }
 body.builder .builder-inspector {
   grid-row: 2;
@@ -533,10 +561,11 @@ li[aria-current="true"] > .tree-row {
 @media (max-width: 64rem) {
   body.builder .builder-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: 40px 200px 1fr 240px;
+    grid-template-rows: 36px 200px 1fr 240px;
     height: auto;
     min-height: calc(100vh - 36px);
   }
+  body.builder .builder-canvas { grid-column: 1; }
   body.builder .builder-tree,
   body.builder .builder-inspector {
     border-right: 0;

@@ -41,10 +41,10 @@ async fn register_login_logout_flow() {
         r.status()
     );
 
-    // Hit /pages — should now be authenticated.
+    // Hit /apps — should now be authenticated and render.
     let r = app
         .client
-        .get(format!("{}/pages", app.url))
+        .get(format!("{}/apps", app.url))
         .send()
         .await
         .unwrap();
@@ -60,10 +60,10 @@ async fn register_login_logout_flow() {
         .unwrap();
     assert!(r.status().is_redirection());
 
-    // /pages now redirects to /auth/login.
+    // /apps now redirects to /auth/login (no session).
     let r = app
         .client
-        .get(format!("{}/pages", app.url))
+        .get(format!("{}/apps", app.url))
         .send()
         .await
         .unwrap();
@@ -88,13 +88,13 @@ async fn csrf_post_without_token_returns_403() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn anonymous_pages_redirects_to_login() {
+async fn anonymous_apps_redirects_to_login() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     let r = app
         .client
-        .get(format!("{}/pages", app.url))
+        .get(format!("{}/apps", app.url))
         .send()
         .await
         .unwrap();

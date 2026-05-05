@@ -139,6 +139,7 @@ pub async fn get_page_edit(
         .await?
         .ok_or(WebError::NotFound)?;
     let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let root = page.root_element.unwrap_or_default();
     let selection = Selection::from_query(q.sel.as_deref(), root);
     let tab = InspectorTab::from_query(q.tab.as_deref());
@@ -148,6 +149,7 @@ pub async fn get_page_edit(
         app: &app,
         page: &page,
         elements: &rows,
+        collections: &collections,
         selection,
         tab,
         csrf_token: &token,
@@ -180,6 +182,53 @@ pub async fn get_page_preview(
         rendered.into_string()
     );
     Ok(axum::response::Html(html).into_response())
+}
+
+/// Walks the rows and, for any element carrying `data-lovely-bind`,
+/// replaces the element's text with the value pulled from the
+/// referenced collection's first record. Cheap O(n × bindings) for
+/// now — caches collection lookups within the call.
+async fn resolve_bindings(
+    pg: &sqlx::PgPool,
+    app_id: uuid::Uuid,
+    rows: &mut [lovely_tree::ElementRow],
+) -> Result<(), WebError> {
+    use std::collections::HashMap;
+    let mut cache: HashMap<String, Option<serde_json::Value>> = HashMap::new();
+    for row in rows.iter_mut() {
+        let Some(bind) = row
+            .attrs_json
+            .get("data-lovely-bind")
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        let (coll_name, field) = match bind.split_once('.') {
+            Some(parts) => parts,
+            None => continue,
+        };
+        let key = coll_name.to_string();
+        let first_row_data = if let Some(v) = cache.get(&key) {
+            v.clone()
+        } else {
+            let coll = lovely_db::find_collection_by_name(pg, app_id, coll_name).await?;
+            let v = match coll {
+                Some(c) => {
+                    let recs = lovely_db::list_records(pg, c.id).await?;
+                    recs.into_iter().next().map(|r| r.data_json)
+                }
+                None => None,
+            };
+            cache.insert(key, v.clone());
+            v
+        };
+        if let Some(data) = first_row_data {
+            if let Some(s) = data.get(field).and_then(|v| v.as_str()) {
+                row.text = Some(s.to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn html_escape(s: &str) -> String {
@@ -221,7 +270,8 @@ async fn render_public(
     let page = find_page_by_app_and_slug(&state.pg, app.id, slug)
         .await?
         .ok_or(WebError::NotFound)?;
-    let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let mut rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    resolve_bindings(&state.pg, app.id, &mut rows).await?;
     let tree = Tree::from_db_rows(&rows)?;
     let rendered = tree.render();
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);

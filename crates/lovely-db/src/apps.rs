@@ -84,6 +84,53 @@ pub async fn list_apps_by_owner(pool: &PgPool, owner_id: Uuid) -> Result<Vec<App
     Ok(rows)
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct AppPatch {
+    pub slug: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+}
+
+pub async fn update_app(pool: &PgPool, id: Uuid, patch: AppPatch) -> Result<App, DbError> {
+    let row = sqlx::query_as::<_, App>(
+        r#"
+        UPDATE apps
+        SET slug        = COALESCE($2, slug),
+            name        = COALESCE($3, name),
+            description = CASE WHEN $4::boolean THEN $5 ELSE description END,
+            updated_at  = now()
+        WHERE id = $1
+        RETURNING id, slug, name, description, owner_id, is_default, created_at, updated_at
+        "#,
+    )
+    .bind(id)
+    .bind(patch.slug.as_deref())
+    .bind(patch.name.as_deref())
+    .bind(patch.description.is_some())
+    .bind(patch.description.flatten())
+    .fetch_one(pool)
+    .await
+    .map_err(crate::users::map_unique_violation)?;
+    Ok(row)
+}
+
+pub async fn delete_app(pool: &PgPool, id: Uuid) -> Result<u64, DbError> {
+    let n = sqlx::query("DELETE FROM apps WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?
+        .rows_affected();
+    Ok(n)
+}
+
+pub async fn count_apps_for_owner(pool: &PgPool, owner_id: Uuid) -> Result<i64, DbError> {
+    let n: (i64,) = sqlx::query_as("SELECT count(*) FROM apps WHERE owner_id = $1")
+        .bind(owner_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(n.0)
+}
+
 /// Look up the default app for a user identified by username — used by
 /// the public `/:username/:slug` URL resolver.
 pub async fn find_default_app_for_username(

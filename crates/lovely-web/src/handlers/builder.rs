@@ -43,6 +43,7 @@ pub async fn get_tree_fragment(
         .await?
         .ok_or(WebError::NotFound)?;
     let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let root = page.root_element.unwrap_or_default();
     let selection = Selection::from_query(q.sel.as_deref(), root);
     let tab = InspectorTab::from_query(q.tab.as_deref());
@@ -52,6 +53,7 @@ pub async fn get_tree_fragment(
         app: &app,
         page: &page,
         elements: &rows,
+        collections: &collections,
         selection,
         tab,
         csrf_token: &token,
@@ -74,6 +76,7 @@ pub async fn get_inspector_fragment(
         .await?
         .ok_or(WebError::NotFound)?;
     let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let root = page.root_element.unwrap_or_default();
     let selection = Selection::from_query(q.sel.as_deref(), root);
     let tab = InspectorTab::from_query(q.tab.as_deref());
@@ -83,6 +86,7 @@ pub async fn get_inspector_fragment(
         app: &app,
         page: &page,
         elements: &rows,
+        collections: &collections,
         selection,
         tab,
         csrf_token: &token,
@@ -98,6 +102,14 @@ pub struct PatchElementForm {
     pub attr_name: Option<String>,
     #[serde(default)]
     pub attr_value: Option<String>,
+    /// Bind this element to `{collection}.{field}` from the app's data
+    /// store. The binding is stored as a `data-lovely-bind` attribute
+    /// (so it renders harmlessly into HTML and is observable in the DOM)
+    /// and resolved at public-render time before `Tree::render` runs.
+    #[serde(default)]
+    pub binding_collection: Option<String>,
+    #[serde(default)]
+    pub binding_field: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -167,6 +179,42 @@ pub async fn patch_element(
     // Apply text update if present.
     if let Some(text) = form.text {
         patch.payload = Some(json!({ "text": text }));
+    }
+
+    // Apply binding update if present. Stored as `data-lovely-bind` attr.
+    if let Some(coll) = form.binding_collection.as_deref() {
+        let field = form.binding_field.as_deref().unwrap_or("");
+        let bind_value = if coll.is_empty() {
+            String::new()
+        } else {
+            format!("{coll}.{field}")
+        };
+        // Merge into existing attrs (or the freshly-merged map from above).
+        let merged = match patch.attrs.take() {
+            Some(serde_json::Value::Object(o)) => o,
+            _ => {
+                let current: Option<serde_json::Value> =
+                    sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+                        .bind(element_id)
+                        .fetch_optional(&state.pg)
+                        .await
+                        .map_err(lovely_db::DbError::Sqlx)?;
+                match current {
+                    Some(serde_json::Value::Object(o)) => o,
+                    _ => serde_json::Map::new(),
+                }
+            }
+        };
+        let mut merged = merged;
+        if bind_value.is_empty() {
+            merged.remove("data-lovely-bind");
+        } else {
+            merged.insert(
+                "data-lovely-bind".to_string(),
+                serde_json::Value::String(bind_value),
+            );
+        }
+        patch.attrs = Some(serde_json::Value::Object(merged));
     }
 
     if patch.attrs.is_some() || patch.payload.is_some() {

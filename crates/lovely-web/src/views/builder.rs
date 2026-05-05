@@ -5,7 +5,7 @@
 //! preview iframe (1fr), inspector (≈320px). Stacks under 80rem.
 
 use crate::views::{builder_shell, ShellCtx};
-use lovely_db::{App, Page, User};
+use lovely_db::{App, Collection, Page, User};
 use lovely_tree::ElementRow;
 use maud::{html, Markup};
 use uuid::Uuid;
@@ -73,6 +73,7 @@ pub struct BuilderCtx<'a> {
     pub app: &'a App,
     pub page: &'a Page,
     pub elements: &'a [ElementRow],
+    pub collections: &'a [Collection],
     pub selection: Selection,
     pub tab: InspectorTab,
     pub csrf_token: &'a str,
@@ -295,6 +296,15 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
 
 fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
+    let bind = row
+        .attrs_json
+        .get("data-lovely-bind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let (bind_coll, bind_field) = match bind.split_once('.') {
+        Some((c, f)) => (c, f),
+        None => (bind, ""),
+    };
     html! {
         form
             hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
@@ -307,6 +317,41 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                 input type="text" name="text" value=(row.text.clone().unwrap_or_default());
             }
             button type="submit" { "Save" }
+        }
+        @if !ctx.collections.is_empty() {
+            div .data-binding {
+                h3 { "Bind to data" }
+                form
+                    hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
+                        ctx.app.slug, edit_segment, row.id))
+                    hx-swap="none"
+                    .inspector-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    label {
+                        "Collection"
+                        select name="binding_collection" {
+                            option value="" { "(none)" }
+                            @for c in ctx.collections {
+                                option value=(c.name) selected[c.name == bind_coll] { (c.name) }
+                            }
+                        }
+                    }
+                    label {
+                        "Field"
+                        input type="text" name="binding_field" value=(bind_field) placeholder="title";
+                    }
+                    button type="submit" { "Save binding" }
+                }
+                @if !bind.is_empty() {
+                    p .muted { "Currently bound to " code { (bind) } }
+                }
+            }
+        } @else {
+            p .muted .data-binding-empty {
+                "No collections in this app. "
+                a href={"/apps/" (ctx.app.slug) "/data"} { "Create one" }
+                " to bind data."
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 pub mod apps;
+pub mod collections;
 pub mod elements;
 pub mod errors;
 pub mod oauth;
@@ -9,8 +10,13 @@ pub mod sqlite_store;
 pub mod users;
 
 pub use apps::{
-    create_app, find_app_by_owner_and_slug, find_default_app_for_owner,
-    find_default_app_for_username, list_apps_by_owner, App, NewApp,
+    count_apps_for_owner, create_app, delete_app, find_app_by_owner_and_slug,
+    find_default_app_for_owner, find_default_app_for_username, list_apps_by_owner, update_app,
+    App, AppPatch, NewApp,
+};
+pub use collections::{
+    create_collection, delete_collection, delete_record, find_collection_by_name,
+    insert_record, list_collections, list_records, Collection, Record,
 };
 pub use elements::{
     delete_element, insert_element, load_elements_for_page, update_element, ElementDbRow,
