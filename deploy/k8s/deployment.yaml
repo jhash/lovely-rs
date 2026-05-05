@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lovely-server
+  labels:
+    app: lovely-server
+spec:
+  replicas: 1
+  # Recreate (not RollingUpdate): the pod owns a RWO PVC at /data with per-app
+  # SQLite files. Two pods cannot mount it simultaneously, and overlapping
+  # writers would corrupt WAL state.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lovely-server
+  template:
+    metadata:
+      labels:
+        app: lovely-server
+    spec:
+      containers:
+        - name: lovely-server
+          image: lovely-rs:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: LOVELY_BIND
+              value: "0.0.0.0:8080"
+            - name: LOVELY_BASE_URL
+              value: "https://lovely.example.com"
+            - name: LOVELY_SQLITE_DATA_DIR
+              value: "/data/apps"
+            - name: LOVELY_STATIC_DIR
+              value: "/opt/lovely/static"
+            - name: LOVELY_LOG_FORMAT
+              value: "json"
+            - name: LOVELY_LOG_LEVEL
+              value: "info"
+            - name: LOVELY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: lovely-secrets
+                  key: DATABASE_URL
+            - name: LOVELY_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lovely-secrets
+                  key: SESSION_SECRET
+            - name: LOVELY_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lovely-secrets
+                  key: GITHUB_CLIENT_SECRET
+            - name: LOVELY_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: lovely-secrets
+                  key: GOOGLE_CLIENT_SECRET
+            - name: LOVELY_APPLE_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lovely-secrets
+                  key: APPLE_PRIVATE_KEY
+          volumeMounts:
+            - name: app-data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: lovely-data

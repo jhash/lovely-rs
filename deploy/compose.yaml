@@ -1,0 +1,32 @@
+services:
+  lovely-server:
+    image: lovely-rs:latest
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    ports: ["8080:8080"]
+    environment:
+      LOVELY_DATABASE_URL: postgres://lovely:${LOVELY_DB_PASSWORD}@postgres:5432/lovely
+      LOVELY_BASE_URL: ${LOVELY_BASE_URL:-http://localhost:8080}
+    secrets: [session_secret, github_client_secret, google_client_secret, apple_private_key]
+    volumes: ["app-data:/data"]
+    depends_on: { postgres: { condition: service_healthy } }
+    deploy:
+      replicas: 1
+      restart_policy: { condition: on-failure }
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: lovely
+      POSTGRES_PASSWORD: ${LOVELY_DB_PASSWORD}
+      POSTGRES_DB: lovely
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lovely"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes: { app-data: {}, pg-data: {} }
+secrets:
+  session_secret:        { external: true }
+  github_client_secret:  { external: true }
+  google_client_secret:  { external: true }
+  apple_private_key:     { external: true }

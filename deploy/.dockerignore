@@ -1,0 +1,19 @@
+# Build output
+/target
+
+# VCS
+/.git
+.gitignore
+
+# Tests, docs, and runtime data
+/tests
+/docs
+/data
+
+# Local env files (secrets must not leak into the image)
+.env
+.env.*
+
+# Git hooks and CI configs
+.githooks
+.github
