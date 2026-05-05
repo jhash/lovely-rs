@@ -24,6 +24,23 @@ The pattern `$( $variant:ident => $name:literal ),*` says "zero or more pairs se
 
 When the list grows past what `macro_rules!` can ergonomically express (declarative macros can't read trait impls or call functions), we'd graduate to a procedural macro in a sibling crate. We're nowhere near that.
 
+## `Result<T, E>` and the `?` operator
+**First seen:** `crates/lovely-tree/src/attrs.rs::AttrName::new`
+
+ELI5: Rust has no exceptions. Functions that can fail return `Result<T, E>` — either `Ok(value)` or `Err(error)`. Callers must handle both cases (the compiler enforces this).
+
+The `?` operator is "if `Err`, return early from this function with that error converted via `From`." So `let x = thing()?;` desugars to roughly:
+```
+let x = match thing() { Ok(v) => v, Err(e) => return Err(e.into()) };
+```
+
+That `.into()` matters: if the called function returns `Err(InnerError)` and the calling function returns `Result<_, OuterError>`, the conversion happens automatically as long as `impl From<InnerError> for OuterError` exists. We use this throughout — `WebError::from(DbError)`, `DbError::from(sqlx::Error)`, etc.
+
+## Smart-string (`SmolStr`)
+**First seen:** `crates/lovely-tree/src/attrs.rs::AttrName`
+
+ELI5: `String` always heap-allocates. `SmolStr` stores up to 23 bytes inline (no heap), and only spills to heap for longer values. Attribute names like `class`, `id`, `data-foo` all fit inline, so we save an allocation per attribute. Cheap win for a hot path.
+
 ## Generational keys (slotmap)
 **First seen:** `crates/lovely-tree/src/types.rs::NodeId`
 
