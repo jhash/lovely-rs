@@ -57,7 +57,7 @@ impl Identifier {
                 return Err(DbError::InvalidIdentifier(raw));
             }
         }
-        if RESERVED.iter().any(|w| *w == raw.as_str()) {
+        if RESERVED.contains(&raw.as_str()) {
             return Err(DbError::InvalidIdentifier(raw));
         }
         if raw.starts_with("_lovely") {

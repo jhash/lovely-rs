@@ -528,10 +528,7 @@ pub async fn post_data_console(
     let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
         .await?
         .ok_or(WebError::NotFound)?;
-    let result = match run_console_query(&state, app.id, &form.sql).await {
-        Ok(rows) => Ok(rows),
-        Err(e) => Err(e),
-    };
+    let result = run_console_query(&state, app.id, &form.sql).await;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     let html =
         data_views::data_console(&user, &app, &token, Some(&form.sql), Some(result)).into_string();
