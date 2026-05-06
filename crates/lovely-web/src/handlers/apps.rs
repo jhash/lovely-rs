@@ -306,6 +306,46 @@ pub async fn post_profile_publish(
     Ok(Redirect::to("/apps").into_response())
 }
 
+#[derive(Deserialize, Default)]
+pub struct CheckSlugQuery {
+    pub slug: Option<String>,
+}
+
+/// Live-validation endpoint for the New-App slug field. Returns a small
+/// HTML fragment: `.slug-error` when taken, `.slug-ok` when free, empty
+/// when blank or malformed (no point shouting before they finish typing).
+pub async fn get_check_app_slug(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    axum::extract::Query(q): axum::extract::Query<CheckSlugQuery>,
+) -> Result<Response, WebError> {
+    let slug = q.slug.unwrap_or_default();
+    let slug = slug.trim();
+    if slug.is_empty() || !is_valid_app_slug(slug) {
+        return Ok(axum::response::Html("").into_response());
+    }
+    let taken = find_app_by_owner_and_slug(&state.pg, user.id, slug).await?.is_some();
+    let html = if taken {
+        format!(
+            r#"<span class="slug-error">"{}" is already used by another app.</span>"#,
+            html_escape(slug)
+        )
+    } else {
+        format!(
+            r#"<span class="slug-ok">"{}" is available.</span>"#,
+            html_escape(slug)
+        )
+    };
+    Ok(axum::response::Html(html).into_response())
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 // Legacy redirects so old /pages URLs still land somewhere.
 pub async fn redirect_pages_index() -> Redirect {
     Redirect::to("/apps")

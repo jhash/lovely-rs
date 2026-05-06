@@ -6,7 +6,8 @@ pub fn pages_new(user: &User, app: &App, csrf_token: &str, error: Option<&str>) 
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
-            a href={"/apps/" (app.slug)} { (app.name) } " / New page"
+            a href={"/apps/" (app.slug)} { (app.name) } " / "
+            span .current { "New page" }
         }
         h1 { "New page in " (app.name) }
         form method="post" action={"/apps/" (app.slug) "/pages"} .auth-form {
@@ -14,7 +15,13 @@ pub fn pages_new(user: &User, app: &App, csrf_token: &str, error: Option<&str>) 
             label {
                 "Slug (URL segment, leave empty for the home page)"
                 input type="text" name="slug" pattern="[a-z0-9-]*" maxlength="80"
-                      placeholder="about-us";
+                      placeholder="about-us"
+                      data-slug-input
+                      hx-get={"/apps/" (app.slug) "/pages/check-slug"}
+                      hx-trigger="input changed delay:300ms, load"
+                      hx-target="next .slug-feedback"
+                      hx-swap="innerHTML";
+                span .slug-feedback aria-live="polite" {}
             }
             label {
                 "Title"

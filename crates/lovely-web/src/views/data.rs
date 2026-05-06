@@ -12,7 +12,8 @@ pub fn data_index(
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
-            a href={"/apps/" (app.slug)} { (app.name) } " / Data"
+            a href={"/apps/" (app.slug)} { (app.name) } " / "
+            span .current { "Data" }
         }
         (app_subnav(app, AppTab::Data))
         section .summary-section {
@@ -61,7 +62,8 @@ pub fn collection_new(
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
             a href={"/apps/" (app.slug)} { (app.name) } " / "
-            a href={"/apps/" (app.slug) "/data"} { "Data" } " / New collection"
+            a href={"/apps/" (app.slug) "/data"} { "Data" } " / "
+            span .current { "New collection" }
         }
         (app_subnav(app, AppTab::Data))
         h1 { "New collection" }
@@ -102,7 +104,7 @@ pub fn collection_view(
             a href="/apps" { "Apps" } " / "
             a href={"/apps/" (app.slug)} { (app.name) } " / "
             a href={"/apps/" (app.slug) "/data"} { "Data" } " / "
-            code { (coll.name) }
+            span .current { code { (coll.name) } }
         }
         (app_subnav(app, AppTab::Data))
         div .page-header {
@@ -206,7 +208,8 @@ pub fn collection_edit(
             a href={"/apps/" (app.slug)} { (app.name) } " / "
             a href={"/apps/" (app.slug) "/data"} { "Data" } " / "
             a href={"/apps/" (app.slug) "/data/" (coll.name)} { code { (coll.name) } }
-            " / Edit"
+            " / "
+            span .current { "Edit" }
         }
         (app_subnav(app, AppTab::Data))
         h1 { "Edit — " (coll.name) }

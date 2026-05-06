@@ -24,6 +24,10 @@ pub fn router(state: AppState) -> Router {
         .route("/apps", get(handlers::apps::get_apps_index))
         .route("/apps", post(handlers::apps::post_apps_create))
         .route("/apps/new", get(handlers::apps::get_apps_new))
+        .route(
+            "/apps/check-slug",
+            get(handlers::apps::get_check_app_slug),
+        )
         .route("/apps/{app_slug}", get(handlers::apps::get_app_dashboard))
         .route("/apps/{app_slug}/settings", get(handlers::apps::get_app_settings))
         .route("/apps/{app_slug}/rename", post(handlers::apps::post_app_rename))
@@ -84,6 +88,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/apps/{app_slug}/pages/new",
             get(handlers::pages::get_pages_new),
+        )
+        .route(
+            "/apps/{app_slug}/pages/check-slug",
+            get(handlers::pages::get_check_page_slug),
         )
         .route(
             "/apps/{app_slug}/pages",

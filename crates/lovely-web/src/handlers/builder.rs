@@ -119,6 +119,14 @@ pub struct PatchElementForm {
     /// collection. Stored as `data-lovely-repeat=<collection>`.
     #[serde(default)]
     pub repeat_collection: Option<String>,
+    /// Mark this element as a data SOURCE — its submitted value gets
+    /// written to `{collection}.{field}` when the parent form submits.
+    /// Counterpart to `binding_*`, which is for READ. Stored as
+    /// `data-lovely-source` attribute.
+    #[serde(default)]
+    pub source_collection: Option<String>,
+    #[serde(default)]
+    pub source_field: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -226,6 +234,41 @@ pub async fn patch_element(
             merged.insert(
                 "data-lovely-repeat".to_string(),
                 serde_json::Value::String(coll.to_string()),
+            );
+        }
+        patch.attrs = Some(serde_json::Value::Object(merged));
+    }
+
+    // Apply data-source update if present. Stored as `data-lovely-source` attr.
+    if let Some(coll) = form.source_collection.as_deref() {
+        let field = form.source_field.as_deref().unwrap_or("");
+        let value = if coll.is_empty() {
+            String::new()
+        } else {
+            format!("{coll}.{field}")
+        };
+        let merged = match patch.attrs.take() {
+            Some(serde_json::Value::Object(o)) => o,
+            _ => {
+                let current: Option<serde_json::Value> =
+                    sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+                        .bind(element_id)
+                        .fetch_optional(&state.pg)
+                        .await
+                        .map_err(lovely_db::DbError::Sqlx)?;
+                match current {
+                    Some(serde_json::Value::Object(o)) => o,
+                    _ => serde_json::Map::new(),
+                }
+            }
+        };
+        let mut merged = merged;
+        if value.is_empty() {
+            merged.remove("data-lovely-source");
+        } else {
+            merged.insert(
+                "data-lovely-source".to_string(),
+                serde_json::Value::String(value),
             );
         }
         patch.attrs = Some(serde_json::Value::Object(merged));

@@ -222,5 +222,21 @@
   });
   document.addEventListener("htmx:afterSwap", function (e) {
     if (e.target && e.target.id === "tree") wireSortable(e.target);
+    // Slug live-validation: when the `.slug-feedback` element gets a
+    // new fragment, mark the input aria-invalid + disable submit when
+    // the response contains `.slug-error`.
+    if (
+      e.target &&
+      e.target.classList &&
+      e.target.classList.contains("slug-feedback")
+    ) {
+      var form = e.target.closest("form");
+      if (!form) return;
+      var input = form.querySelector("[data-slug-input]");
+      var submit = form.querySelector('button[type="submit"]');
+      var taken = e.target.querySelector(".slug-error") !== null;
+      if (input) input.setAttribute("aria-invalid", taken ? "true" : "false");
+      if (submit) submit.disabled = taken;
+    }
   });
 })();

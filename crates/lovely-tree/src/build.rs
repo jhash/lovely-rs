@@ -164,43 +164,51 @@ fn patch_root(tree: &mut Tree, attrs: AttrList, text: Option<String>) {
 }
 
 /// Sort sibling rows according to the prev_sibling linked list.
+///
+/// If the chain is broken (duplicate prev_sibling pointers, dangling
+/// references, or a cycle), salvage what we can: walk from the head as
+/// far as possible, then append unreached rows in a deterministic order
+/// (uuid). A corrupt chain is a data bug we want to fix, but it must
+/// never take down a page render.
 fn order_siblings<'a>(
-    parent: ElementUuid,
+    _parent: ElementUuid,
     rows: &[&'a ElementRow],
 ) -> Result<Vec<&'a ElementRow>, TreeError> {
-    let by_id: HashMap<ElementUuid, &'a ElementRow> = rows.iter().map(|r| (r.id, *r)).collect();
-    // Map prev_sibling -> row: each non-head row has a unique prev.
+    use std::collections::HashSet;
+    // First-row-per-prev: keep insertion-order winner; the rest are
+    // appended at the end in uuid order.
     let mut next_of: HashMap<Option<ElementUuid>, &'a ElementRow> = HashMap::new();
+    let mut overflow: Vec<&'a ElementRow> = Vec::new();
     for row in rows {
-        if next_of.insert(row.prev_sibling, *row).is_some() {
-            return Err(TreeError::MalformedRow(format!(
-                "siblings of {parent} have two rows with the same prev_sibling"
-            )));
+        if let std::collections::hash_map::Entry::Vacant(e) = next_of.entry(row.prev_sibling) {
+            e.insert(*row);
+        } else {
+            // Duplicate prev_sibling — keep the earliest insertion in
+            // the chain; the later row goes into overflow.
+            overflow.push(*row);
         }
     }
-    // Verify any prev_sibling reference points within this sibling group.
-    for row in rows {
-        if let Some(prev) = row.prev_sibling {
-            if !by_id.contains_key(&prev) {
-                return Err(TreeError::MalformedRow(format!(
-                    "row {} has prev_sibling {} not in same sibling group",
-                    row.id, prev
-                )));
-            }
-        }
-    }
-    // Walk: head is the row with prev_sibling = None.
+    // Walk from the head (prev = None) as far as the chain takes us.
     let mut ordered: Vec<&'a ElementRow> = Vec::with_capacity(rows.len());
+    let mut visited: HashSet<ElementUuid> = HashSet::new();
     let mut cursor: Option<ElementUuid> = None;
     while let Some(row) = next_of.remove(&cursor) {
+        if !visited.insert(row.id) {
+            // Cycle — bail out and let the salvage step pick up remainder.
+            break;
+        }
         ordered.push(row);
         cursor = Some(row.id);
     }
-    if ordered.len() != rows.len() {
-        return Err(TreeError::MalformedRow(format!(
-            "siblings of {parent} have a broken prev_sibling chain"
-        )));
-    }
+    // Append any rows the walk didn't reach (broken chain or no head)
+    // and any duplicates from overflow, sorted by uuid for stability.
+    let mut leftover: Vec<&'a ElementRow> = next_of
+        .into_values()
+        .chain(overflow)
+        .filter(|r| !visited.contains(&r.id))
+        .collect();
+    leftover.sort_by_key(|r| r.id);
+    ordered.extend(leftover);
     Ok(ordered)
 }
 
@@ -293,6 +301,30 @@ mod tests {
         let rows = vec![row(r, None, None, "marquee")];
         let err = Tree::from_db_rows(&rows).unwrap_err();
         assert!(matches!(err, TreeError::MalformedRow(_)));
+    }
+
+    #[test]
+    fn salvages_duplicate_prev_sibling_chain() {
+        // Two children of root claim the same prev_sibling. We should
+        // not 500 — render with one in the chain and the dup appended.
+        let r = ElementUuid::new_v4();
+        let a = ElementUuid::new_v4();
+        let b = ElementUuid::new_v4();
+        let c = ElementUuid::new_v4();
+        let rows = vec![
+            row(r, None, None, "div"),
+            row(a, Some(r), None, "div"),
+            row(b, Some(r), Some(a), "p"),       // chain: a -> b
+            row(c, Some(r), Some(a), "textarea"), // dup: also claims prev=a
+        ];
+        let tree = Tree::from_db_rows(&rows).expect("should not error on dup prev_sibling");
+        let root_id = tree.root();
+        let kids: Vec<_> = tree.children(root_id).map(|(_, n)| n.uuid).collect();
+        assert_eq!(kids.len(), 3);
+        assert_eq!(kids[0], a, "head must be `a` (prev=None)");
+        // `b` and `c` both claimed prev=a — one wins the chain, the other
+        // is appended. Either order is acceptable as long as both render.
+        assert!(kids.contains(&b) && kids.contains(&c));
     }
 
     #[test]

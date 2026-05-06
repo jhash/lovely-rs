@@ -55,6 +55,24 @@ pub async fn post_add_element(
     }
     let parent_id = form.parent_id.or(page.root_element);
     let parent_id = parent_id.ok_or(WebError::BadRequest("page has no root element".into()))?;
+    // Refuse if parent is a leaf element (input/textarea/img/br/hr/...).
+    let parent_tag: Option<(String,)> =
+        sqlx::query_as("SELECT tag FROM elements WHERE id = $1 AND page_id = $2")
+            .bind(parent_id)
+            .bind(page.id)
+            .fetch_optional(&state.pg)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
+    if let Some((tag,)) = parent_tag.as_ref() {
+        if let Some(t) = ElementTag::from_name(tag) {
+            if t.is_leaf() {
+                return Err(WebError::Unprocessable(format!(
+                    "<{}> elements cannot have children",
+                    tag
+                )));
+            }
+        }
+    }
     // Find the current last child of parent_id to set prev_sibling.
     let prev_sibling: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM elements \

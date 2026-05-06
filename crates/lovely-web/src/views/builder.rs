@@ -287,6 +287,7 @@ fn row_actions_menu(
     let id = row.id;
     let app_slug = &ctx.app.slug;
     let csrf_token = ctx.csrf_token;
+    let is_leaf = ElementTag::from_name(&row.tag).map(|t| t.is_leaf()).unwrap_or(true);
     html! {
         details .tree-actions data-actions {
             summary title="Actions" { "⋯" }
@@ -297,10 +298,12 @@ fn row_actions_menu(
                     (quick_action(app_slug, edit_segment, &id.to_string(), csrf_token,
                         "add-after", "div", "Add after"))
                 }
-                (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
-                    "div", "Add child"))
-                (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
-                    "#text", "Add text child"))
+                @if !is_leaf {
+                    (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                        "div", "Add child"))
+                    (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                        "#text", "Add text child"))
+                }
                 @if !is_root {
                     form
                         hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/duplicate"))
@@ -521,12 +524,12 @@ fn element_inspector(ctx: &BuilderCtx<'_>, id: Uuid) -> Markup {
 fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let is_root = ctx.page.root_element == Some(row.id.into_inner());
-    let is_text = row.tag == "#text";
+    let is_leaf = ElementTag::from_name(&row.tag).map(|t| t.is_leaf()).unwrap_or(true);
     html! {
-        @if !is_text {
-            div .inspector-add {
-                h3 { "Add element" }
-                div .inspector-add-buttons {
+        div .inspector-add {
+            h3 { "Add element" }
+            div .inspector-add-buttons {
+                @if !is_leaf {
                     form
                         hx-post=(format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment))
                         hx-swap="none"
@@ -547,25 +550,25 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                             span .tree-text-glyph { "T" } " Add text child"
                         }
                     }
-                    @if !is_root {
-                        form
-                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-before",
-                                ctx.app.slug, edit_segment, row.id))
-                            hx-swap="none"
-                            .inline-form {
-                            input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                            input type="hidden" name="tag" value="div";
-                            button type="submit" { "Add before" }
-                        }
-                        form
-                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
-                                ctx.app.slug, edit_segment, row.id))
-                            hx-swap="none"
-                            .inline-form {
-                            input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                            input type="hidden" name="tag" value="div";
-                            button type="submit" { "Add after" }
-                        }
+                }
+                @if !is_root {
+                    form
+                        hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-before",
+                            ctx.app.slug, edit_segment, row.id))
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="tag" value="div";
+                        button type="submit" { "Add before" }
+                    }
+                    form
+                        hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
+                            ctx.app.slug, edit_segment, row.id))
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="tag" value="div";
+                        button type="submit" { "Add after" }
                     }
                 }
             }
@@ -580,11 +583,15 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         .get("data-lovely-bind")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let (bind_coll, bind_field) = match bind.split_once('.') {
-        Some((c, f)) => (c, f),
-        None => (bind, ""),
-    };
+    let (bind_coll, bind_field) = split_ref(bind);
+    let source = row
+        .attrs_json
+        .get("data-lovely-source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let (src_coll, src_field) = split_ref(source);
     let is_text = row.tag == "#text";
+    let is_input_like = matches!(row.tag.as_str(), "input" | "textarea" | "select");
     let patch_url = format!(
         "/apps/{}/pages/{}/elements/{}",
         ctx.app.slug, edit_segment, row.id
@@ -602,7 +609,7 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                     textarea name="text" rows="3" autofocus { (row.text.clone().unwrap_or_default()) }
                 }
             }
-        } @else {
+        } @else if !is_input_like {
             p .muted {
                 "Text content lives on its own "
                 code { "#text" }
@@ -614,30 +621,113 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
             }
         }
         @if !ctx.collections.is_empty() {
-            div .data-binding {
-                h3 { "Bind to data" }
-                form
-                    hx-patch=(patch_url)
-                    hx-swap="none"
-                    hx-trigger="change"
-                    .inspector-form {
-                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                    label {
-                        "Collection"
-                        select name="binding_collection" {
-                            option value="" { "(none)" }
-                            @for c in ctx.collections {
-                                option value=(c.name) selected[c.name == bind_coll] { (c.name) }
-                            }
+            (data_ref_section(
+                ctx, &patch_url,
+                DataDirection::Read,
+                bind, bind_coll, bind_field,
+            ))
+            @if is_input_like {
+                (data_ref_section(
+                    ctx, &patch_url,
+                    DataDirection::Write,
+                    source, src_coll, src_field,
+                ))
+            }
+        }
+    }
+}
+
+fn split_ref(value: &str) -> (&str, &str) {
+    match value.split_once('.') {
+        Some((c, f)) => (c, f),
+        None => (value, ""),
+    }
+}
+
+#[derive(Copy, Clone)]
+enum DataDirection {
+    Read,
+    Write,
+}
+
+impl DataDirection {
+    fn heading(self) -> &'static str {
+        match self {
+            DataDirection::Read => "Display value (read from data)",
+            DataDirection::Write => "Collect value (write into data)",
+        }
+    }
+    fn helper(self) -> &'static str {
+        match self {
+            DataDirection::Read => {
+                "Element shows the field's value from the latest record."
+            }
+            DataDirection::Write => {
+                "On form submit, this input writes its value into a new record."
+            }
+        }
+    }
+    fn coll_field(self) -> (&'static str, &'static str) {
+        match self {
+            DataDirection::Read => ("binding_collection", "binding_field"),
+            DataDirection::Write => ("source_collection", "source_field"),
+        }
+    }
+}
+
+fn data_ref_section(
+    ctx: &BuilderCtx<'_>,
+    patch_url: &str,
+    dir: DataDirection,
+    current: &str,
+    current_coll: &str,
+    current_field: &str,
+) -> Markup {
+    let (coll_name, field_name) = dir.coll_field();
+    let active_coll = ctx.collections.iter().find(|c| c.name == current_coll);
+    let coll_fields: Vec<String> = active_coll.map(|c| c.fields()).unwrap_or_default();
+    html! {
+        div .data-binding {
+            h3 { (dir.heading()) }
+            p .muted { (dir.helper()) }
+            form
+                hx-patch=(patch_url)
+                hx-swap="none"
+                hx-trigger="change"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Collection"
+                    select name=(coll_name) {
+                        option value="" { "(none)" }
+                        @for c in ctx.collections {
+                            option value=(c.name) selected[c.name == current_coll] { (c.name) }
                         }
                     }
-                    label {
-                        "Field"
-                        input type="text" name="binding_field" value=(bind_field) placeholder="title";
+                }
+                label {
+                    "Field"
+                    select name=(field_name)
+                        disabled[active_coll.is_none()] {
+                        option value="" { "(pick a field)" }
+                        @for f in &coll_fields {
+                            option value=(f) selected[f == current_field] { (f) }
+                        }
                     }
                 }
-                @if !bind.is_empty() {
-                    p .muted { "Currently bound to " code { (bind) } }
+            }
+            @if !current.is_empty() {
+                div .binding-current {
+                    p .muted { "Connected to " code { (current) } }
+                    form
+                        hx-patch=(patch_url)
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name=(coll_name) value="";
+                        input type="hidden" name=(field_name) value="";
+                        button type="submit" .danger { "Disconnect" }
+                    }
                 }
             }
         }

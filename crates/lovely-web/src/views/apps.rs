@@ -4,13 +4,14 @@ use maud::{html, Markup};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum AppTab {
+    Home,
     Pages,
     Data,
     Settings,
 }
 
 /// Sub-nav rendered on every /apps/{slug}* page so users can jump
-/// between Pages, Data, and Settings without re-thinking the URL.
+/// between Home, Pages, Data, and Settings without re-thinking the URL.
 pub fn app_subnav(app: &App, active: AppTab) -> Markup {
     let tab = |label: &str, href: String, kind: AppTab| {
         let is_active = active == kind;
@@ -23,7 +24,8 @@ pub fn app_subnav(app: &App, active: AppTab) -> Markup {
     html! {
         nav .app-subnav aria-label="App sections" {
             div .app-subnav-inner {
-                (tab("Pages", format!("/apps/{}", app.slug), AppTab::Pages))
+                (tab("Home", format!("/apps/{}", app.slug), AppTab::Home))
+                (tab("Pages", format!("/apps/{}/pages", app.slug), AppTab::Pages))
                 (tab("Data", format!("/apps/{}/data", app.slug), AppTab::Data))
                 (tab("Settings", format!("/apps/{}/settings", app.slug), AppTab::Settings))
             }
@@ -65,7 +67,8 @@ pub fn apps_index(user: &User, apps: &[App], csrf_token: &str) -> Markup {
 pub fn apps_new(user: &User, csrf_token: &str, error: Option<&str>) -> Markup {
     let body = html! {
         nav .breadcrumbs {
-            a href="/apps" { "Apps" } " / New app"
+            a href="/apps" { "Apps" } " / "
+            span .current { "New app" }
         }
         h1 { "New app" }
         form method="post" action="/apps" .auth-form {
@@ -73,7 +76,13 @@ pub fn apps_new(user: &User, csrf_token: &str, error: Option<&str>) -> Markup {
             label {
                 "Slug (URL segment)"
                 input type="text" name="slug" pattern="[a-z0-9-]+" maxlength="40"
-                      required placeholder="my-blog";
+                      required placeholder="my-blog"
+                      data-slug-input
+                      hx-get="/apps/check-slug"
+                      hx-trigger="input changed delay:300ms"
+                      hx-target="next .slug-feedback"
+                      hx-swap="innerHTML";
+                span .slug-feedback aria-live="polite" {}
             }
             label {
                 "Name"
@@ -109,11 +118,11 @@ pub fn app_dashboard(
 ) -> Markup {
     let body = html! {
         nav .breadcrumbs {
-            a href="/apps" { "Apps" } " / " (app.name)
+            a href="/apps" { "Apps" } " / "
+            span .current { (app.name) }
         }
-        h1 { (app.name) }
         @if let Some(d) = &app.description { p .muted { (d) } }
-        (app_subnav(app, AppTab::Pages))
+        (app_subnav(app, AppTab::Home))
 
         (pages_summary_section(user, app, pages))
         (data_summary_section(app, collections))
@@ -135,7 +144,8 @@ pub fn app_pages_index(user: &User, app: &App, pages: &[Page], csrf_token: &str)
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
-            a href={"/apps/" (app.slug)} { (app.name) } " / Pages"
+            a href={"/apps/" (app.slug)} { (app.name) } " / "
+            span .current { "Pages" }
         }
         (app_subnav(app, AppTab::Pages))
         (pages_summary_section(user, app, pages))
@@ -220,7 +230,8 @@ pub fn app_settings(user: &User, app: &App, csrf_token: &str) -> Markup {
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
-            a href={"/apps/" (app.slug)} { (app.name) } " / Settings"
+            a href={"/apps/" (app.slug)} { (app.name) } " / "
+            span .current { "Settings" }
         }
         (app_subnav(app, AppTab::Settings))
         h1 { "Settings — " (app.name) }

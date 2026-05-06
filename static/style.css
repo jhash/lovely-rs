@@ -217,6 +217,20 @@ button:disabled, .button:disabled, input[type="submit"]:disabled {
   margin: var(--space-2) 0;
 }
 
+/* Inline live-validation feedback (slug uniqueness, etc.) */
+.slug-feedback {
+  display: block;
+  font-size: 0.85rem;
+  min-height: 1.2em;
+  margin-top: var(--space-1);
+}
+.slug-error { color: #b00020; }
+.slug-ok { color: #057a55; }
+[aria-invalid="true"] {
+  border-color: #b00020;
+  background: #fff5f5;
+}
+
 /* Tables */
 table {
   border-collapse: collapse;
@@ -338,6 +352,10 @@ nav.breadcrumbs {
 }
 nav.breadcrumbs a { text-decoration: none; }
 nav.breadcrumbs a:hover { text-decoration: underline; }
+nav.breadcrumbs .current {
+  color: var(--ink);
+  font-weight: 700;
+}
 
 /* Pills */
 .pill {
@@ -608,6 +626,16 @@ body.builder .builder-inspector {
   overflow-y: auto;
   padding: var(--space-3);
   font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The Add-element block sits at the bottom of the inspector — the
+   tabs/content above flex-grow to fill, mirroring lovely Swift. */
+body.builder .builder-inspector .inspector-add {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--soft-border);
 }
 
 /* Tree sidebar */

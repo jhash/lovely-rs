@@ -26,6 +26,24 @@ macro_rules! define_tags {
     };
 }
 
+impl ElementTag {
+    /// True for tags that can't have children: void HTML elements,
+    /// form-control elements (input, textarea, select), and the inline
+    /// `#text` node. Mirrors lovely Swift's leaf-element constraint.
+    pub fn is_leaf(self) -> bool {
+        matches!(
+            self,
+            ElementTag::Text
+                | ElementTag::Img
+                | ElementTag::Br
+                | ElementTag::Hr
+                | ElementTag::Input
+                | ElementTag::Textarea
+                | ElementTag::Select
+        )
+    }
+}
+
 define_tags! {
     // Inline text node — no wrapping element. Renders just the
     // (escaped) `text` payload. Lets authors mix loose text in among

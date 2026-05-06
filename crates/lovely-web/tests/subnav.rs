@@ -24,7 +24,7 @@ async fn register(app: &TestApp, username: &str) -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn dashboard_subnav_marks_pages_active() {
+async fn dashboard_subnav_marks_home_active() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
@@ -41,11 +41,32 @@ async fn dashboard_subnav_marks_pages_active() {
         body.contains("class=\"app-subnav\"") || body.contains("app-subnav"),
         "missing sub-nav"
     );
-    // Pages tab is active here.
+    // Dashboard is the Home tab now (Pages got its own /pages route).
+    let home_active = body
+        .lines()
+        .any(|l| l.contains(">Home<") && l.contains("aria-current=\"page\""));
+    assert!(home_active, "Home tab should have aria-current=page on dashboard");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn pages_route_subnav_marks_pages_active() {
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+
+    let r = app
+        .client
+        .get(format!("{}/apps/personal/pages", app.url))
+        .send()
+        .await
+        .unwrap();
+    let body = r.text().await.unwrap();
     let pages_active = body
         .lines()
         .any(|l| l.contains(">Pages<") && l.contains("aria-current=\"page\""));
-    assert!(pages_active, "Pages tab should have aria-current=page on dashboard");
+    assert!(pages_active, "Pages tab should be active on /pages");
 }
 
 #[tokio::test]

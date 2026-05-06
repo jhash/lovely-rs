@@ -124,6 +124,56 @@ pub async fn post_pages_create(
     }
 }
 
+#[derive(Deserialize, Default)]
+pub struct CheckPageSlugQuery {
+    pub slug: Option<String>,
+}
+
+/// Live-validation for the New-Page slug field. Empty slug is allowed
+/// (it's the home page) but only one home page per app — flag if taken.
+pub async fn get_check_page_slug(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    Query(q): Query<CheckPageSlugQuery>,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let raw = q.slug.unwrap_or_default();
+    let slug = raw.trim();
+    // Validate format. Empty slug is the home page — allowed.
+    if !slug.is_empty()
+        && !slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Ok(axum::response::Html(
+            r#"<span class="slug-error">Slugs can only contain lowercase letters, digits, and dashes.</span>"#,
+        )
+        .into_response());
+    }
+    let taken = find_page_by_app_and_slug(&state.pg, app.id, slug)
+        .await?
+        .is_some();
+    let display = if slug.is_empty() {
+        "the home page".to_string()
+    } else {
+        format!("\"{}\"", slug)
+    };
+    let html = if taken {
+        format!(
+            r#"<span class="slug-error">{} is already used in this app.</span>"#,
+            display
+        )
+    } else if slug.is_empty() {
+        r#"<span class="slug-ok">Will be the home page.</span>"#.to_string()
+    } else {
+        format!(r#"<span class="slug-ok">{} is available.</span>"#, display)
+    };
+    Ok(axum::response::Html(html).into_response())
+}
+
 pub async fn get_page_edit(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -547,7 +597,21 @@ async fn resolve_bindings(
         };
         if let Some(data) = first_row_data {
             if let Some(s) = data.get(field).and_then(|v| v.as_str()) {
-                row.text = Some(s.to_string());
+                match row.tag.as_str() {
+                    // <input> is void — populate the value attribute.
+                    "input" => {
+                        if let serde_json::Value::Object(m) = &mut row.attrs_json {
+                            m.insert("value".into(), serde_json::Value::String(s.to_string()));
+                        } else {
+                            row.attrs_json = serde_json::json!({ "value": s });
+                        }
+                    }
+                    // <textarea> uses its inner text as the value.
+                    "textarea" => row.text = Some(s.to_string()),
+                    // <select> — too involved; skip for now.
+                    "select" => {}
+                    _ => row.text = Some(s.to_string()),
+                }
             }
         }
     }
