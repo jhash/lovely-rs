@@ -64,6 +64,10 @@ pub fn router(state: AppState) -> Router {
             get(handlers::data::get_collection_new),
         )
         .route(
+            "/apps/{app_slug}/data/console",
+            get(handlers::data::get_data_console).post(handlers::data::post_data_console),
+        )
+        .route(
             "/apps/{app_slug}/data/{coll_name}",
             get(handlers::data::get_collection),
         )

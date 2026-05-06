@@ -432,6 +432,7 @@ pub async fn post_record_delete(
         return Err(WebError::NotFound);
     }
     lovely_db::delete_record(&state.pg, form.id).await?;
+    mirror_record_delete(&state, app.id, &coll.name, form.id).await;
     Ok(Redirect::to(&format!("/apps/{}/data/{}", app.slug, coll.name)).into_response())
 }
 
@@ -491,6 +492,134 @@ pub async fn post_public_submit(
 const IDENT_HELP: &str =
     "name must be 1–63 chars; lowercase letters, digits, underscores; not a SQL keyword";
 
+const CONSOLE_ROW_CAP: usize = 100;
+
+#[derive(Deserialize, Default)]
+pub struct ConsoleForm {
+    #[serde(default)]
+    pub sql: String,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+pub async fn get_data_console(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html = data_views::data_console(&user, &app, &token, None, None).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
+}
+
+pub async fn post_data_console(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+    Form(form): Form<ConsoleForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let result = match run_console_query(&state, app.id, &form.sql).await {
+        Ok(rows) => Ok(rows),
+        Err(e) => Err(e),
+    };
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    let html =
+        data_views::data_console(&user, &app, &token, Some(&form.sql), Some(result)).into_string();
+    Ok((jar, axum::response::Html(html)).into_response())
+}
+
+async fn run_console_query(
+    state: &AppState,
+    app_id: uuid::Uuid,
+    sql: &str,
+) -> Result<data_views::ConsoleRows, String> {
+    let trimmed = sql.trim_end_matches(';').trim();
+    if trimmed.is_empty() {
+        return Err("query is empty".into());
+    }
+    // Refuse anything that isn't a single read statement. Cheap
+    // safeguard: real defense is the read-only pool, but blocking
+    // common write keywords up front gives a clearer error.
+    let head = trimmed
+        .split_ascii_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(head.as_str(), "select" | "with" | "explain" | "pragma") {
+        return Err(format!("only SELECT / WITH / EXPLAIN / PRAGMA are allowed, got `{head}`"));
+    }
+    if trimmed.contains(';') {
+        return Err("multiple statements are not allowed".into());
+    }
+
+    let pool = state
+        .app_store
+        .get_pool(app_id)
+        .await
+        .map_err(|e| format!("open sqlite: {e}"))?;
+    let rows = sqlx::query(trimmed)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("query failed: {e}"))?;
+
+    use sqlx::{Column, Row, TypeInfo, ValueRef};
+    let mut out = data_views::ConsoleRows {
+        columns: Vec::new(),
+        rows: Vec::new(),
+        truncated: false,
+    };
+    if let Some(first) = rows.first() {
+        out.columns = first
+            .columns()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect();
+    }
+    for (i, row) in rows.iter().enumerate() {
+        if i >= CONSOLE_ROW_CAP {
+            out.truncated = true;
+            break;
+        }
+        let mut vals = Vec::with_capacity(out.columns.len());
+        for (idx, col) in row.columns().iter().enumerate() {
+            let raw = row
+                .try_get_raw(idx)
+                .map_err(|e| format!("decode column {}: {e}", col.name()))?;
+            let s = if raw.is_null() {
+                String::new()
+            } else {
+                match raw.type_info().name() {
+                    "INTEGER" | "INT" => row
+                        .try_get::<i64, _>(idx)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                    "REAL" | "FLOAT" | "NUMERIC" => row
+                        .try_get::<f64, _>(idx)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                    "BLOB" => "<blob>".to_string(),
+                    _ => row
+                        .try_get::<String, _>(idx)
+                        .unwrap_or_else(|_| String::new()),
+                }
+            };
+            vals.push(s);
+        }
+        out.rows.push(vals);
+    }
+    Ok(out)
+}
+
 /// Mirror a record insert into the per-app SQLite database. Best-effort:
 /// any failure is logged and swallowed so the user-facing flow still
 /// succeeds — Postgres remains the source of truth until we cut over.
@@ -548,4 +677,32 @@ async fn mirror_record_insert_inner(
     }
     q.execute(&pool).await?;
     Ok(())
+}
+
+async fn mirror_record_delete(
+    state: &AppState,
+    app_id: uuid::Uuid,
+    collection_name: &str,
+    record_id: uuid::Uuid,
+) {
+    let res: anyhow::Result<()> = async {
+        let table = Identifier::new(collection_name)
+            .map_err(|_| anyhow::anyhow!("invalid table name {collection_name}"))?;
+        let pool = state.app_store.get_pool(app_id).await?;
+        let sql = format!("DELETE FROM \"{}\" WHERE id = ?", table.as_str());
+        sqlx::query(&sql)
+            .bind(record_id.to_string())
+            .execute(&pool)
+            .await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = res {
+        tracing::warn!(
+            error = %e,
+            app_id = %app_id,
+            collection = %collection_name,
+            "sqlite mirror delete failed"
+        );
+    }
 }

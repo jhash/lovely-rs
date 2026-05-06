@@ -14,7 +14,11 @@ pub fn data_index(user: &User, app: &App, collections: &[Collection], csrf_token
         section .summary-section {
             div .section-header {
                 h2 { "Collections" }
-                a href={"/apps/" (app.slug) "/data/new"} .button { "New collection" }
+                span {
+                    a href={"/apps/" (app.slug) "/data/console"} .button.muted { "SQL console" }
+                    " "
+                    a href={"/apps/" (app.slug) "/data/new"} .button { "New collection" }
+                }
             }
             @if collections.is_empty() {
                 p .muted { "No collections yet." }
@@ -305,5 +309,89 @@ fn typed_field_input(f: &lovely_db::Field) -> Markup {
                 textarea name=(name) rows="3" placeholder="Street\nCity, State ZIP" {}
             }
         },
+    }
+}
+
+/// Read-only SQL console for the per-app SQLite database. Lets the
+/// owner peek at what the intent log has built so far. The handler
+/// rejects anything that isn't a SELECT and caps results at 100 rows.
+pub fn data_console(
+    user: &User,
+    app: &App,
+    csrf_token: &str,
+    sql: Option<&str>,
+    result: Option<Result<ConsoleRows, String>>,
+) -> Markup {
+    let body = html! {
+        nav .breadcrumbs {
+            a href="/apps" { "Apps" } " / "
+            a href={"/apps/" (app.slug)} { (app.name) } " / "
+            a href={"/apps/" (app.slug) "/data"} { "Data" } " / "
+            span .current { "Console" }
+        }
+        (app_subnav(app, AppTab::Data))
+        section .summary-section {
+            div .section-header {
+                h2 { "SQL console" }
+                p .muted { "Read-only SELECT against this app's SQLite database." }
+            }
+            form method="post" action={"/apps/" (app.slug) "/data/console"} .auth-form {
+                input type="hidden" name="_csrf" value=(csrf_token);
+                label {
+                    "Query"
+                    textarea name="sql" rows="6" placeholder="SELECT * FROM posts LIMIT 10" autofocus {
+                        @if let Some(s) = sql { (s) }
+                    }
+                }
+                button type="submit" { "Run" }
+            }
+            @match result {
+                Some(Ok(rows)) => (console_results(&rows)),
+                Some(Err(msg)) => p .error { (msg) },
+                None => {}
+            }
+        }
+    };
+    shell(
+        ShellCtx {
+            title: &format!("Console — {}", app.name),
+            description: None,
+            user: Some(user),
+            csrf_token,
+        },
+        body,
+    )
+}
+
+#[derive(Debug, Clone)]
+pub struct ConsoleRows {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub truncated: bool,
+}
+
+fn console_results(rows: &ConsoleRows) -> Markup {
+    html! {
+        @if rows.rows.is_empty() {
+            p .muted { "(no rows)" }
+        } @else {
+            table .data-table {
+                thead {
+                    tr {
+                        @for c in &rows.columns { th { (c) } }
+                    }
+                }
+                tbody {
+                    @for r in &rows.rows {
+                        tr {
+                            @for cell in r { td { (cell) } }
+                        }
+                    }
+                }
+            }
+            @if rows.truncated {
+                p .muted { "Result truncated at 100 rows." }
+            }
+        }
     }
 }
