@@ -218,7 +218,6 @@ pub async fn post_logout(
 ) -> Result<Response, WebError> {
     let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
     csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
-    let _ = state;
     if let Some(c) = jar.get(SESSION_COOKIE) {
         let _ = lovely_db::delete_session(&state.pg, c.value()).await;
     }
