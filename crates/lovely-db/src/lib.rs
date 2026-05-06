@@ -2,6 +2,7 @@ pub mod apps;
 pub mod collections;
 pub mod elements;
 pub mod errors;
+pub mod intent;
 pub mod oauth;
 pub mod pages;
 pub mod pg;
@@ -25,6 +26,7 @@ pub use elements::{
     ElementPatch, InsertElement,
 };
 pub use errors::DbError;
+pub use intent::{ColumnKind, ColumnSpec, DefaultValue, Identifier, Intent, RenderedDdl};
 pub use oauth::{upsert_oauth_identity, OAuthIdentity, UpsertOAuth};
 pub use pages::{
     create_page, delete_page, find_page_by_app_and_slug, find_page_by_id, list_pages_in_app,
