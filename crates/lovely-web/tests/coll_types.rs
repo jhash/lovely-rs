@@ -168,7 +168,7 @@ async fn record_form_renders_typed_inputs() {
         ("views", "number"),
         ("contact", "email"),
         ("href", "url"),
-        ("when", "datetime"),
+        ("event_at", "datetime"),
         ("published_on", "date"),
         ("featured", "bool"),
     ] {

@@ -1,4 +1,5 @@
 use crate::errors::DbError;
+use crate::intent::ColumnKind;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -74,6 +75,18 @@ impl FieldType {
         FieldType::Bool,
         FieldType::Address,
     ];
+
+    /// SQLite column kind that this field maps to in the per-app DB.
+    pub fn column_kind(self) -> ColumnKind {
+        match self {
+            Self::Text | Self::LongText | Self::Email | Self::Url | Self::Address => {
+                ColumnKind::Text
+            }
+            Self::Number => ColumnKind::Real,
+            Self::Date | Self::DateTime => ColumnKind::Datetime,
+            Self::Bool => ColumnKind::Boolean,
+        }
+    }
 }
 
 /// One column in a collection's schema.
