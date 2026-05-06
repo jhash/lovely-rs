@@ -75,6 +75,11 @@ pub async fn create_page(pool: &PgPool, new: NewPage) -> Result<(Page, Uuid), Db
     .await?;
 
     tx.commit().await?;
+    // Baseline revision so the first user edit can be undone all the
+    // way back to the just-created state. Without this seq=0 baseline,
+    // `step(Undo)` from the only-snapshot state finds nothing and the
+    // user's first change becomes irreversible.
+    crate::revisions::snapshot_page(pool, page.id).await?;
     Ok((updated, element_id.0))
 }
 

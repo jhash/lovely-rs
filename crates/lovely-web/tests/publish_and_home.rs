@@ -163,6 +163,56 @@ async fn publish_toggle_persists_on_then_off_with_oob_swap() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
+async fn anon_view_of_published_page_renders_200() {
+    // Regression: the /-redirect must only fire for UNPUBLISHED pages.
+    // A published page must render for anon viewers.
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages", app.url))
+        .form(&[
+            ("slug", "live"),
+            ("title", "Live"),
+            ("description", ""),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    // Publish via the same flow the UI uses (publish form).
+    let token = app.csrf_token().await.unwrap();
+    let r = app
+        .client
+        .post(format!("{}/apps/personal/pages/live", app.url))
+        .form(&[("publish", "on"), ("_publish_form", "1"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "publish toggle: {}", r.status());
+
+    let anon = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let r = anon
+        .get(format!("{}/alice/live", app.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "published page must render for anon (got {})",
+        r.status()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
 async fn anon_view_of_unpublished_page_redirects_to_home() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
