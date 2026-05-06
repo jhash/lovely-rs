@@ -4,7 +4,7 @@
 //! The grid is: top bar above three columns — tree, preview iframe,
 //! inspector. Stacks under 64rem.
 
-use crate::views::{builder_shell, ShellCtx};
+use crate::views::{builder_shell, labeled_checkbox, ShellCtx};
 use lovely_db::{App, Collection, Page, User};
 use lovely_tree::{ElementRow, ElementTag};
 use maud::{html, Markup};
@@ -426,11 +426,7 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
                 .inspector-form {
                 input type="hidden" name="_csrf" value=(ctx.csrf_token);
                 input type="hidden" name="title" value=(ctx.page.title);
-                label .checkbox {
-                    input type="checkbox" name="publish" value="on"
-                        checked[ctx.page.published_at.is_some()];
-                    " Published"
-                }
+                (labeled_checkbox("publish", "Published", ctx.page.published_at.is_some()))
             }
         }
         section .inspector-section {
@@ -455,10 +451,7 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
                     input type="password" name="password" placeholder=
                         @if ctx.page.password_hash.is_some() { "currently set" } @else { "no password" };
                 }
-                label .checkbox {
-                    input type="checkbox" name="unlisted" value="on" checked[ctx.page.unlisted];
-                    " Unlisted (404 unless owner)"
-                }
+                (labeled_checkbox("unlisted", "Unlisted (404 unless owner)", ctx.page.unlisted))
             }
         }
     }
@@ -621,11 +614,6 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
             }
         }
         @if !ctx.collections.is_empty() {
-            (data_ref_section(
-                ctx, &patch_url,
-                DataDirection::Read,
-                bind, bind_coll, bind_field,
-            ))
             @if is_input_like {
                 (data_ref_section(
                     ctx, &patch_url,
@@ -633,6 +621,11 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                     source, src_coll, src_field,
                 ))
             }
+            (data_ref_section(
+                ctx, &patch_url,
+                DataDirection::Read,
+                bind, bind_coll, bind_field,
+            ))
         }
     }
 }
@@ -660,10 +653,15 @@ impl DataDirection {
     fn helper(self) -> &'static str {
         match self {
             DataDirection::Read => {
-                "Element shows the field's value from the latest record."
+                "Pick a collection to make its records available to this \
+                 element. The optional field directly populates this \
+                 element's text — leave it blank to use {{collection.field}} \
+                 interpolation in #text children, repeat templates, or \
+                 dynamic attributes instead."
             }
             DataDirection::Write => {
-                "On form submit, this input writes its value into a new record."
+                "On form submit, this input writes its value into a new \
+                 record's field."
             }
         }
     }
@@ -672,6 +670,9 @@ impl DataDirection {
             DataDirection::Read => ("binding_collection", "binding_field"),
             DataDirection::Write => ("source_collection", "source_field"),
         }
+    }
+    fn field_optional(self) -> bool {
+        matches!(self, DataDirection::Read)
     }
 }
 
@@ -706,10 +707,16 @@ fn data_ref_section(
                     }
                 }
                 label {
-                    "Field"
+                    @if dir.field_optional() {
+                        "Field (optional — direct value display)"
+                    } @else {
+                        "Field"
+                    }
                     select name=(field_name)
                         disabled[active_coll.is_none()] {
-                        option value="" { "(pick a field)" }
+                        option value="" {
+                            @if dir.field_optional() { "(none)" } @else { "(pick a field)" }
+                        }
                         @for f in &coll_fields {
                             option value=(f) selected[f == current_field] { (f) }
                         }

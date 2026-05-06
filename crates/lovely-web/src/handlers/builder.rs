@@ -275,10 +275,16 @@ pub async fn patch_element(
     }
 
     // Apply binding update if present. Stored as `data-lovely-bind` attr.
+    // Field is OPTIONAL for binds — a bare collection name means "this
+    // element has access to the collection" (used by repeats and
+    // {{coll.field}} interpolation in descendants/attrs). Only when both
+    // are present do we render a direct value substitution.
     if let Some(coll) = form.binding_collection.as_deref() {
-        let field = form.binding_field.as_deref().unwrap_or("");
+        let field = form.binding_field.as_deref().unwrap_or("").trim();
         let bind_value = if coll.is_empty() {
             String::new()
+        } else if field.is_empty() {
+            coll.to_string()
         } else {
             format!("{coll}.{field}")
         };

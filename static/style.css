@@ -410,6 +410,23 @@ ul.app-list li:last-child, ul.page-list li:last-child {
   align-items: center;
   gap: var(--space-2);
 }
+
+/* Checkbox + label, inline. Works inside any form (auth-form,
+   inspector-form, etc.) without inheriting the parent's column flex. */
+label.checkbox-row {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0;
+  color: var(--ink);
+}
+label.checkbox-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
+}
+label.checkbox-row span { color: var(--ink); }
 .auth-form button[type="submit"] {
   align-self: flex-start;
 }

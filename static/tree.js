@@ -220,6 +220,48 @@
       document.dispatchEvent(new CustomEvent("preview-stale"));
     });
   });
+  // Server emits `lovely:select` after creating an element so the
+  // editor can swap to that selection without a full reload. Detail:
+  // {id: "<uuid>", focus: "text" | ""}. We update the URL, ask htmx to
+  // re-fetch tree + inspector at the new sel, and focus the text
+  // textarea afterwards if requested.
+  document.body.addEventListener("lovely:select", function (e) {
+    var id = e.detail && e.detail.id;
+    if (!id) return;
+    var focus = (e.detail && e.detail.focus) || "";
+    var m = window.location.pathname.match(/^(\/apps\/[^/]+\/pages\/[^/]+)/);
+    if (!m) return;
+    var base = m[1];
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", base + "/edit?sel=" + id);
+    }
+    if (window.htmx) {
+      window.htmx.ajax("GET", base + "/inspector?sel=" + id, {
+        target: "#inspector",
+        swap: "innerHTML",
+      });
+      window.htmx.ajax("GET", base + "/tree?sel=" + id, {
+        target: "#tree",
+        swap: "innerHTML",
+      });
+    }
+    if (focus === "text") {
+      // Wait for the inspector to swap in before focusing.
+      var tries = 0;
+      var poll = setInterval(function () {
+        var ta = document.querySelector('#inspector textarea[name="text"]');
+        if (ta) {
+          ta.focus();
+          var v = ta.value;
+          ta.setSelectionRange(v.length, v.length);
+          clearInterval(poll);
+        } else if (++tries > 20) {
+          clearInterval(poll);
+        }
+      }, 25);
+    }
+  });
+
   document.addEventListener("htmx:afterSwap", function (e) {
     if (e.target && e.target.id === "tree") wireSortable(e.target);
     // Slug live-validation: when the `.slug-feedback` element gets a

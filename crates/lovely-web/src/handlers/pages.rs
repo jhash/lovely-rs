@@ -576,10 +576,15 @@ async fn resolve_bindings(
         else {
             continue;
         };
-        let (coll_name, field) = match bind.split_once('.') {
-            Some(parts) => parts,
-            None => continue,
+        // `coll` alone (no `.field`) is a collection-context bind — no
+        // direct value substitution; only relevant for repeats and
+        // future interpolation in descendants. Skip it here.
+        let Some((coll_name, field)) = bind.split_once('.') else {
+            continue;
         };
+        if field.is_empty() {
+            continue;
+        }
         let key = coll_name.to_string();
         let first_row_data = if let Some(v) = cache.get(&key) {
             v.clone()

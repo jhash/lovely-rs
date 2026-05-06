@@ -19,6 +19,21 @@ fn hx_ok_preview_stale() -> Response {
     (StatusCode::OK, headers, Html("")).into_response()
 }
 
+/// 200 + HX-Trigger that bundles `preview-stale` and `lovely:select`.
+/// `select_id` is the element to select after the swap. `focus` is one
+/// of `"text"` (focus the textarea) or `""` (no focus).
+fn hx_ok_select(select_id: Uuid, focus: &str) -> Response {
+    let payload = json!({
+        "preview-stale": {},
+        "lovely:select": { "id": select_id.to_string(), "focus": focus },
+    });
+    let mut headers = HeaderMap::new();
+    if let Ok(v) = HeaderValue::from_str(&payload.to_string()) {
+        headers.insert("HX-Trigger", v);
+    }
+    (StatusCode::OK, headers, Html("")).into_response()
+}
+
 #[derive(Deserialize)]
 pub struct AddElementForm {
     pub tag: String,
@@ -87,7 +102,8 @@ pub async fn post_add_element(
     .await
     .map_err(lovely_db::DbError::Sqlx)?;
     let payload = json!({"text": form.text.unwrap_or_default()});
-    lovely_db::insert_element(
+    let is_text = form.tag == "#text";
+    let new_row = lovely_db::insert_element(
         &state.pg,
         lovely_db::InsertElement {
             page_id: page.id,
@@ -101,12 +117,14 @@ pub async fn post_add_element(
     .await?;
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
-        return Ok(hx_ok_preview_stale());
+        let focus = if is_text { "text" } else { "" };
+        return Ok(hx_ok_select(new_row.id, focus));
     }
     Ok(Redirect::to(&format!(
-        "/apps/{}/pages/{}/edit",
+        "/apps/{}/pages/{}/edit?sel={}",
         app.slug,
-        super::pages::slug_path_segment(&page.slug)
+        super::pages::slug_path_segment(&page.slug),
+        new_row.id
     ))
     .into_response())
 }
@@ -216,6 +234,7 @@ async fn add_sibling(
         Position::After => Some(target_id),
     };
     let payload = json!({"text": form.text.unwrap_or_default()});
+    let is_text = form.tag == "#text";
     let new_row = lovely_db::insert_element(
         &state.pg,
         lovely_db::InsertElement {
@@ -239,12 +258,14 @@ async fn add_sibling(
     }
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
-        return Ok(hx_ok_preview_stale());
+        let focus = if is_text { "text" } else { "" };
+        return Ok(hx_ok_select(new_row.id, focus));
     }
     Ok(Redirect::to(&format!(
-        "/apps/{}/pages/{}/edit",
+        "/apps/{}/pages/{}/edit?sel={}",
         app.slug,
-        super::pages::slug_path_segment(&page.slug)
+        super::pages::slug_path_segment(&page.slug),
+        new_row.id
     ))
     .into_response())
 }
@@ -349,12 +370,13 @@ pub async fn post_wrap_element(
     tx.commit().await.map_err(lovely_db::DbError::Sqlx)?;
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
-        return Ok(hx_ok_preview_stale());
+        return Ok(hx_ok_select(wrap_id.0, ""));
     }
     Ok(Redirect::to(&format!(
-        "/apps/{}/pages/{}/edit",
+        "/apps/{}/pages/{}/edit?sel={}",
         app.slug,
-        super::pages::slug_path_segment(&page.slug)
+        super::pages::slug_path_segment(&page.slug),
+        wrap_id.0
     ))
     .into_response())
 }
@@ -404,15 +426,15 @@ pub async fn post_duplicate_element(
         },
     )
     .await?;
-    let _ = new_row;
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
-        return Ok(hx_ok_preview_stale());
+        return Ok(hx_ok_select(new_row.id, ""));
     }
     Ok(Redirect::to(&format!(
-        "/apps/{}/pages/{}/edit",
+        "/apps/{}/pages/{}/edit?sel={}",
         app.slug,
-        super::pages::slug_path_segment(&page.slug)
+        super::pages::slug_path_segment(&page.slug),
+        new_row.id
     ))
     .into_response())
 }
