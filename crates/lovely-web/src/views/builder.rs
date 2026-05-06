@@ -111,7 +111,7 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
     };
     let body = html! {
         div .builder-grid {
-            (topbar(&ctx, &public_path, &edit_segment))
+            (topbar(&ctx, &public_path))
             aside #tree .builder-tree
                 hx-get=(format!("/apps/{}/pages/{}/tree?sel={}",
                     ctx.app.slug, edit_segment, ctx.selection.param()))
@@ -158,7 +158,7 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
     )
 }
 
-fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup {
+fn topbar(ctx: &BuilderCtx<'_>, public_path: &str) -> Markup {
     html! {
         header .builder-topbar {
             nav .breadcrumbs {
@@ -166,22 +166,22 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
                 a href={"/apps/" (ctx.app.slug)} { (ctx.app.name) } " / "
                 @if ctx.page.slug.is_empty() { "(home)" } @else { (ctx.page.slug) }
             }
-            div .topbar-history {
-                form
-                    hx-post=(format!("/apps/{}/pages/{}/undo", ctx.app.slug, edit_segment))
-                    hx-swap="none"
-                    .inline-form {
-                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                    button type="submit" title="Undo (Cmd-Z)" { "↶" }
-                }
-                form
-                    hx-post=(format!("/apps/{}/pages/{}/redo", ctx.app.slug, edit_segment))
-                    hx-swap="none"
-                    .inline-form {
-                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                    button type="submit" title="Redo (Cmd-Shift-Z)" { "↷" }
-                }
-            }
+            // div .topbar-history {
+            //     form
+            //         hx-post=(format!("/apps/{}/pages/{}/undo", ctx.app.slug, edit_segment))
+            //         hx-swap="none"
+            //         .inline-form {
+            //         input type="hidden" name="_csrf" value=(ctx.csrf_token);
+            //         button type="submit" title="Undo (Cmd-Z)" { "↶" }
+            //     }
+            //     form
+            //         hx-post=(format!("/apps/{}/pages/{}/redo", ctx.app.slug, edit_segment))
+            //         hx-swap="none"
+            //         .inline-form {
+            //         input type="hidden" name="_csrf" value=(ctx.csrf_token);
+            //         button type="submit" title="Redo (Cmd-Shift-Z)" { "↷" }
+            //     }
+            // }
             div .spacer {}
             @if ctx.page.published_at.is_some() {
                 span #topbar-publish-pill .pill .pill-published { "published" }
@@ -198,37 +198,36 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
     let page_selected = matches!(ctx.selection, Selection::Page);
     let elements_url = format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment);
     html! {
-        ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
-            li .elements-sidebar__page-cell
-                aria-current=[if page_selected { Some("true") } else { None }]
-                role="button"
-                tabindex="0"
-                data-sel-id="page"
-                hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
-                    ctx.app.slug, edit_segment))
-                hx-target="#inspector"
-                hx-swap="innerHTML"
-                hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page", ctx.app.slug, edit_segment))
-                {
-                    span .tree-page-glyph { "▤" }
-                    " "
-                    (ctx.page.title)
-                    @if ctx.page.published_at.is_some() {
-                        " " span #tree-page-pill .pill .pill-published { "published" }
-                    } @else {
-                        " " span #tree-page-pill .pill .pill-draft { "draft" }
-                    }
+        div .elements-sidebar__page-cell
+            aria-current=[if page_selected { Some("true") } else { None }]
+            role="button"
+            tabindex="0"
+            data-sel-id="page"
+            hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
+                ctx.app.slug, edit_segment))
+            hx-target="#inspector"
+            hx-swap="innerHTML"
+            hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page", ctx.app.slug, edit_segment))
+            {
+                span .tree-page-glyph { "▤" }
+                " "
+                (ctx.page.title)
+                @if ctx.page.published_at.is_some() {
+                    " " span #tree-page-pill .pill .pill-published { "published" }
+                } @else {
+                    " " span #tree-page-pill .pill .pill-draft { "draft" }
                 }
+            }
+        ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
             @if let Some(root_id) = ctx.page.root_element {
                 (tree_node(ctx, root_id, current_selection(ctx), &edit_segment, true))
-            } @else {
-                li .tree-empty {
-                    p .muted { "No root element yet." }
-                    form hx-post=(elements_url) hx-swap="none" .inline-form {
-                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                        input type="hidden" name="tag" value="div";
-                        button type="submit" { "Add root <div>" }
-                    }
+            }
+
+            li .tree-empty {
+                form hx-post=(elements_url) hx-swap="none" .inline-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    input type="hidden" name="tag" value="div";
+                    button type="submit" { "Add after" }
                 }
             }
         }
@@ -335,7 +334,7 @@ fn row_actions_menu(
                     (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
                         "div", "Add child"))
                     (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
-                        ElementTag::TEXT_NAME, "Add text child"))
+                        ElementTag::TEXT_NAME, "Add text"))
                 }
                 @if !is_root {
                     form
@@ -526,7 +525,7 @@ fn page_add_element_section(ctx: &BuilderCtx<'_>, root_id: Option<Uuid>) -> Mark
                         }
                         input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
                         button type="submit" {
-                            span .tree-text-glyph { "T" } " Add text child"
+                            span .tree-text-glyph { "T" } " Add text"
                         }
                     }
                 }
@@ -619,7 +618,7 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                         input type="hidden" name="parent_id" value=(row.id);
                         input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
                         button type="submit" {
-                            span .tree-text-glyph { "T" } " Add text child"
+                            span .tree-text-glyph { "T" } " Add text"
                         }
                     }
                 }
@@ -696,7 +695,7 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                 " child element so you can mix inline elements (links, "
                 code { "strong" }
                 ", etc.) into a paragraph. Use "
-                strong { "Add text child" }
+                strong { "Add text" }
                 " below."
             }
         }

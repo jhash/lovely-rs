@@ -1161,4 +1161,5 @@ li[aria-current="true"] > .tree-row > .tree-row-button {
 
 .elements-sidebar__page-cell {
   cursor: pointer;
+  padding-bottom: var(--space-3);
 }
