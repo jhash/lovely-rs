@@ -164,6 +164,43 @@ async fn record_insert_mirrors_into_sqlite() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
+async fn data_index_shows_schema_history() {
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/fields", app.url))
+        .form(&[("name", "title"), ("type", "text"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+
+    let r = app
+        .client
+        .get(format!("{}/apps/personal/data", app.url))
+        .send()
+        .await
+        .unwrap();
+    let body = r.text().await.unwrap();
+    assert!(body.contains("Schema history"), "missing audit section");
+    assert!(body.contains("create table"), "missing create-table entry");
+    assert!(body.contains("add `posts.title`"), "missing add-column entry");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
 async fn collection_with_invalid_name_is_rejected() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();

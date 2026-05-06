@@ -26,8 +26,9 @@ pub async fn get_data_index(
         .await?
         .ok_or(WebError::NotFound)?;
     let cs = list_collections(&state.pg, app.id).await?;
+    let history = state.schema.list_for_app(app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::data_index(&user, &app, &cs, &token).into_string();
+    let html = data_views::data_index(&user, &app, &cs, &history, &token).into_string();
     Ok((jar, axum::response::Html(html)).into_response())
 }
 

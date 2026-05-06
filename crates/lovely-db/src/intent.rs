@@ -213,6 +213,38 @@ pub enum Intent {
 }
 
 impl Intent {
+    /// One-line human description used by audit views.
+    pub fn summary(&self) -> String {
+        match self {
+            Intent::CreateTable { name, columns } => {
+                format!("create table `{name}` ({} cols)", columns.len())
+            }
+            Intent::DropTable { name } => format!("drop table `{name}`"),
+            Intent::AddColumn { table, column } => {
+                format!("add `{table}.{}` ({:?})", column.name, column.kind)
+            }
+            Intent::DropColumn { table, column } => {
+                format!("drop `{table}.{column}`")
+            }
+            Intent::RenameColumn { table, from, to } => {
+                format!("rename `{table}.{from}` → `{to}`")
+            }
+            Intent::AddIndex {
+                table,
+                name,
+                unique,
+                ..
+            } => {
+                if *unique {
+                    format!("add unique index `{name}` on `{table}`")
+                } else {
+                    format!("add index `{name}` on `{table}`")
+                }
+            }
+            Intent::DropIndex { name } => format!("drop index `{name}`"),
+        }
+    }
+
     /// Render the SQLite DDL pair for this intent.
     ///
     /// `reverse_sql` is `None` when the intent's reverse loses

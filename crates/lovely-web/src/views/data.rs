@@ -1,9 +1,16 @@
 use crate::views::apps::{app_subnav, AppTab};
 use crate::views::{shell, ShellCtx};
+use lovely_db::intent::Intent;
 use lovely_db::{App, Collection, FieldType, Record, User};
 use maud::{html, Markup, PreEscaped};
 
-pub fn data_index(user: &User, app: &App, collections: &[Collection], csrf_token: &str) -> Markup {
+pub fn data_index(
+    user: &User,
+    app: &App,
+    collections: &[Collection],
+    history: &[(i64, Intent)],
+    csrf_token: &str,
+) -> Markup {
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
@@ -34,6 +41,22 @@ pub fn data_index(user: &User, app: &App, collections: &[Collection], csrf_token
                             } @else {
                                 span .muted { "(" (fs.join(", ")) ")" }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        @if !history.is_empty() {
+            section .summary-section {
+                div .section-header {
+                    h2 { "Schema history" }
+                    p .muted { "Every change applied to this app's SQLite database." }
+                }
+                ol .schema-history reversed {
+                    @for (v, i) in history.iter().rev() {
+                        li {
+                            span .muted { "v" (v) " " }
+                            (i.summary())
                         }
                     }
                 }
