@@ -18,5 +18,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 secrecy = { workspace = true }
+# `systemfd` (a CLI sibling of this crate) hands us an already-bound
+# listening socket via env vars on every rebuild, so the browser never
+# sees "connection refused" between restarts. No-op when the env var
+# is absent (i.e. in production).
+listenfd = "1"
 lovely-db = { path = "../lovely-db" }
 lovely-web = { path = "../lovely-web" }

@@ -1104,25 +1104,6 @@ li[aria-current="true"] > .tree-row > .tree-row-button {
   margin-bottom: var(--space-2);
 }
 
-/* Stack the layout on narrow screens. */
-@media (max-width: 64rem) {
-  body.builder .builder-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: 36px 200px 1fr 240px;
-    height: auto;
-    min-height: calc(100vh - 36px);
-  }
-  body.builder .builder-canvas {
-    grid-column: 1;
-  }
-  body.builder .builder-tree,
-  body.builder .builder-inspector {
-    border-right: 0;
-    border-left: 0;
-    border-bottom: 1px solid var(--soft-border);
-  }
-}
-
 /* Owner-only floating "Edit" badge on the public page. */
 .owner-edit-badge {
   position: fixed;
@@ -1140,13 +1121,6 @@ li[aria-current="true"] > .tree-row > .tree-row-button {
 .owner-edit-badge:hover {
   background: var(--accent);
   color: var(--paper);
-}
-
-/* Responsive: stack the editor on narrow screens */
-@media (max-width: 64rem) {
-  .edit-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* SQL console result table */
@@ -1183,4 +1157,8 @@ li[aria-current="true"] > .tree-row > .tree-row-button {
 }
 .schema-history li:last-child {
   border-bottom: none;
+}
+
+.elements-sidebar__page-cell {
+  cursor: pointer;
 }

@@ -108,10 +108,24 @@ async fn main() -> anyhow::Result<()> {
     );
     let app = lovely_web::router(state);
 
-    let listener = tokio::net::TcpListener::bind(&args.bind)
-        .await
-        .context("bind tcp listener")?;
-    tracing::info!(addr = %args.bind, "lovely-server listening");
+    // Reuse a socket inherited from `systemfd` if present — keeps the
+    // port bound across cargo-watch rebuilds so the browser doesn't
+    // hit "connection refused" mid-restart. Falls back to a fresh
+    // bind in production or when systemfd isn't in the picture.
+    let listener = match listenfd::ListenFd::from_env().take_tcp_listener(0)? {
+        Some(std_listener) => {
+            std_listener.set_nonblocking(true)?;
+            tracing::info!("lovely-server reusing inherited socket from systemfd");
+            tokio::net::TcpListener::from_std(std_listener)?
+        }
+        None => {
+            let l = tokio::net::TcpListener::bind(&args.bind)
+                .await
+                .context("bind tcp listener")?;
+            tracing::info!(addr = %args.bind, "lovely-server listening");
+            l
+        }
+    };
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;

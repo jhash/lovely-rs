@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
-# Run lovely-server with auto-reload via cargo-watch (if installed) or
-# falling back to plain `cargo run`. Loads .env if present.
+# Run lovely-server with hot-reload.
+#
+# Best-case dev loop (install both tools once):
+#
+#     cargo install cargo-watch systemfd
+#
+# Then `./bin/server` will:
+#   * keep the listening socket bound across rebuilds (systemfd) so the
+#     browser doesn't hit "connection refused" while cargo recompiles;
+#   * rebuild + restart on any Rust source / migration / Cargo.toml
+#     change.
+#
+# `static/` is intentionally NOT in the watch list — those are served
+# from disk by tower-http::ServeDir, so a CSS or JS edit only needs a
+# browser refresh, no Rust rebuild.
+#
+# Falls back gracefully when one or both tools are missing.
 
 set -euo pipefail
 
@@ -24,10 +39,25 @@ fi
 
 export LOVELY_DATABASE_URL LOVELY_BIND LOVELY_BASE_URL LOVELY_LOG_LEVEL LOVELY_SESSION_SECRET
 
-if command -v cargo-watch >/dev/null 2>&1; then
-  exec cargo watch -q -w crates -w migrations -w static \
-    -x 'run -p lovely-server'
-else
-  echo "==> Tip: install cargo-watch for auto-reload (\`cargo install cargo-watch\`)"
-  exec cargo run -p lovely-server
+have_watch=false
+have_systemfd=false
+command -v cargo-watch >/dev/null 2>&1 && have_watch=true
+command -v systemfd    >/dev/null 2>&1 && have_systemfd=true
+
+watch_args=(-q -w crates -w migrations -w Cargo.toml -w Cargo.lock)
+
+if $have_watch && $have_systemfd; then
+  # Full hot-reload: systemfd binds the socket, hands it to cargo-watch's
+  # subprocess via env vars, lovely-server picks it up via listenfd.
+  exec systemfd --no-pid -s "http::${LOVELY_BIND}" -- \
+    cargo watch "${watch_args[@]}" -x 'run -p lovely-server'
 fi
+
+if $have_watch; then
+  echo "==> Tip: install systemfd for socket-preserving hot-reload (\`cargo install systemfd\`)"
+  exec cargo watch "${watch_args[@]}" -x 'run -p lovely-server'
+fi
+
+echo "==> Tip: install cargo-watch + systemfd for hot-reload"
+echo "    cargo install cargo-watch systemfd"
+exec cargo run -p lovely-server

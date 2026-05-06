@@ -291,8 +291,9 @@ The `bin/` scripts cover everything you'll need day-to-day. The Warp
 launch config opens five tabs at once (pg, server, test, shell, git).
 
 ```sh
+./bin/install-dev-tools # one-shot: cargo install cargo-watch + systemfd
 ./bin/pg                # boot dev Postgres in Docker
-./bin/server            # cargo run lovely-server (auto-reloads with cargo-watch)
+./bin/server            # cargo run lovely-server with hot-reload
 ./bin/test              # unit tests, watch mode
 ./bin/test-integration  # full Docker-gated suite (slow)
 ./bin/check             # fmt + clippy + test
@@ -300,6 +301,29 @@ launch config opens five tabs at once (pg, server, test, shell, git).
 ./bin/bench             # criterion benches against the saved baseline
 ./bin/pg-stop           # tear down the dev Postgres container
 ```
+
+### How hot-reload works
+
+Two cooperating tools (install once via `./bin/install-dev-tools`):
+
+- **`cargo-watch`** — watches `crates/`, `migrations/`, `Cargo.toml`,
+  `Cargo.lock`. On change, runs `cargo run -p lovely-server`. Rust
+  rebuilds are incremental (~1–4 s for small edits).
+- **`systemfd`** — binds the TCP socket *itself* and hands it to the
+  server subprocess via env vars. When cargo-watch restarts the server,
+  systemfd keeps holding the socket so the browser doesn't see
+  connection refused during the rebuild.
+
+`lovely-server/src/main.rs` checks for the inherited socket via
+`listenfd::ListenFd::from_env()` and falls back to a plain
+`TcpListener::bind` when running in production.
+
+`static/` (CSS, JS, fonts) is **not** in the watch list — it's served
+from disk by `tower-http::ServeDir`. Edit `static/style.css`, refresh
+your browser, done. No Rust rebuild needed.
+
+Maud templates (anything in `crates/lovely-web/src/views/`) compile to
+Rust code via the `html! { … }` macro, so editing those *does* rebuild.
 
 Manual paths:
 

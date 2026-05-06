@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# One-shot install of the dev-loop tools used by ./bin/server and ./bin/test.
+#
+#   cargo-watch — rebuild + restart on file change
+#   systemfd    — keep the listening socket bound across restarts
+#                 so the browser never sees "connection refused"
+#
+# Both are optional. The `bin/` scripts fall back gracefully without
+# them, but the dev experience is dramatically better with both.
+
+set -euo pipefail
+
+want=(cargo-watch systemfd)
+missing=()
+for t in "${want[@]}"; do
+  if ! command -v "$t" >/dev/null 2>&1; then
+    missing+=("$t")
+  fi
+done
+
+if [ ${#missing[@]} -eq 0 ]; then
+  echo "==> Already installed: ${want[*]}"
+  exit 0
+fi
+
+echo "==> Installing: ${missing[*]}"
+exec cargo install --locked "${missing[@]}"

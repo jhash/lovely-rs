@@ -199,18 +199,17 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
     let elements_url = format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment);
     html! {
         ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
-            li .tree-page-row
-                aria-current=[if page_selected { Some("true") } else { None }] {
-                div .tree-row-button
-                    role="button"
-                    tabindex="0"
-                    data-sel-id="page"
-                    hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
-                        ctx.app.slug, edit_segment))
-                    hx-target="#inspector"
-                    hx-swap="innerHTML"
-                    hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page",
-                        ctx.app.slug, edit_segment)) {
+            li .elements-sidebar__page-cell
+                aria-current=[if page_selected { Some("true") } else { None }]
+                role="button"
+                tabindex="0"
+                data-sel-id="page"
+                hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
+                    ctx.app.slug, edit_segment))
+                hx-target="#inspector"
+                hx-swap="innerHTML"
+                hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page", ctx.app.slug, edit_segment))
+                {
                     span .tree-page-glyph { "▤" }
                     " "
                     (ctx.page.title)
@@ -220,7 +219,6 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                         " " span #tree-page-pill .pill .pill-draft { "draft" }
                     }
                 }
-            }
             @if let Some(root_id) = ctx.page.root_element {
                 (tree_node(ctx, root_id, current_selection(ctx), &edit_segment, true))
             } @else {

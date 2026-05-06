@@ -29,8 +29,9 @@ What's not yet wired up: GitHub/Google/Apple OAuth handlers, TOTP enrollment/ver
 The fastest path is the `bin/` scripts:
 
 ```sh
+./bin/install-dev-tools # one-shot: cargo install cargo-watch + systemfd
 ./bin/pg              # boot or start the dev Postgres container, tail logs
-./bin/server          # run lovely-server (auto-reloads if cargo-watch installed)
+./bin/server          # run lovely-server with hot-reload (see below)
 ./bin/test            # run unit tests; auto-reruns on file changes
 ./bin/test-integration  # run Docker-gated integration suite (requires Docker)
 ./bin/bench           # criterion benchmarks against the saved baseline
@@ -38,6 +39,15 @@ The fastest path is the `bin/` scripts:
 ./bin/psql            # psql shell against the dev DB
 ./bin/pg-stop         # stop and remove the dev Postgres container
 ```
+
+### Hot-reload
+
+Run `./bin/install-dev-tools` once. Then `./bin/server` will:
+
+- rebuild + restart on any Rust source, migration, or `Cargo.toml` change (via `cargo-watch`);
+- keep the listening socket bound across restarts so the browser never sees "connection refused" mid-rebuild (via `systemfd` + `listenfd` in `lovely-server`).
+
+`static/` (CSS, JS, fonts) is served from disk by `tower-http::ServeDir`, so editing `static/style.css` or `static/tree.js` only needs a **browser refresh** — no Rust rebuild. Maud templates (`.rs` files in `crates/lovely-web/src/views/`) compile to Rust at build time, so those *do* trigger a rebuild.
 
 Or open the **lovely-rs** Warp launch configuration (Command Palette → "Launch Configurations") to spawn 5 tabs (pg, server, test, shell, git) all at once.
 
