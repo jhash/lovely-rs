@@ -12,8 +12,9 @@ pub mod users;
 
 pub use apps::{
     count_apps_for_owner, create_app, delete_app, find_app_by_owner_and_slug,
-    find_default_app_for_owner, find_default_app_for_username, list_apps_by_owner, update_app,
-    update_app_theme, App, AppPatch, NewApp,
+    find_default_app_for_owner, find_default_app_for_username, list_apps_by_owner,
+    list_published_apps_by_owner, set_app_published, update_app, update_app_theme, App, AppPatch,
+    NewApp,
 };
 pub use collections::{
     create_collection, delete_collection, delete_record, find_collection_by_name,
@@ -37,4 +38,7 @@ pub use sessions::{
     purge_expired_sessions, NewSession, Session,
 };
 pub use sqlite_store::{AppId, SqliteAppStore, StubSqliteAppStore};
-pub use users::{create_user, find_user_by_id, find_user_by_username, NewUser, User, UserRole};
+pub use users::{
+    create_user, find_user_by_id, find_user_by_username, set_user_public_published, NewUser,
+    User, UserRole,
+};

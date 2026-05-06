@@ -470,10 +470,23 @@ button.danger:hover, .button.danger:hover {
   min-height: 12rem;
 }
 
-/* Published page */
+/* Published page — body fills the viewport, the user's root element
+   stretches via flex-grow so they can build full-bleed layouts without
+   fighting our defaults. */
+body.public {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+body.public > :not(.owner-edit-badge) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
 .published-page {
   max-width: 42rem;
   margin: 0 auto;
+  width: 100%;
 }
 .published-page h1 {
   font-size: 2rem;
@@ -575,6 +588,19 @@ body.builder .builder-canvas iframe {
   background: var(--paper);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
   border-radius: var(--radius-1);
+  position: relative;
+  z-index: 1;
+}
+/* Full-canvas click target — clicking the gray padding around the
+   iframe selects the page in the inspector. Sits behind the iframe so
+   the iframe still receives its own clicks. */
+body.builder .builder-canvas .canvas-backdrop {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  z-index: 0;
 }
 body.builder .builder-inspector {
   grid-row: 2;
@@ -589,6 +615,38 @@ body.builder .builder-inspector {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+.tree-page-row {
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.tree-page-glyph {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--muted-ink);
+}
+li.tree-page-row[aria-current="true"] > .tree-row-button {
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.inspector-section {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.inspector-section:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.inspector-section h4 {
+  font-size: 0.85rem;
+  margin: 0 0 var(--space-2);
 }
 .tree-children {
   padding-left: var(--space-3);

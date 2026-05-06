@@ -80,6 +80,60 @@ pub fn published_page(
     )
 }
 
+pub fn user_profile(
+    owner: &User,
+    apps: &[lovely_db::App],
+    viewer: Option<&User>,
+    csrf_token: &str,
+) -> Markup {
+    use crate::views::public_shell;
+    let is_owner = viewer.map(|v| v.id == owner.id).unwrap_or(false);
+    let is_public = owner.public_published_at.is_some();
+    let body = html! {
+        article .published-page {
+            header .profile-header {
+                h1 { "@" (owner.username) }
+                @if is_public {
+                    span .pill .pill-published { "published" }
+                } @else if is_owner {
+                    span .pill .pill-draft { "draft" }
+                }
+            }
+            @if apps.is_empty() {
+                p .muted { "No apps yet." }
+            } @else {
+                ul .app-list {
+                    @for a in apps {
+                        li {
+                            a href={"/" (owner.username) "/" (a.slug)} { (a.name) }
+                            " "
+                            @if a.published_at.is_some() {
+                                span .pill .pill-published { "published" }
+                            } @else if is_owner {
+                                span .pill .pill-draft { "draft" }
+                            }
+                            @if let Some(d) = &a.description { " " span .muted { (d) } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    public_shell(
+        ShellCtx {
+            title: &owner.username,
+            description: None,
+            user: viewer,
+            csrf_token,
+        },
+        if is_owner { Some("/apps") } else { None },
+        is_owner,
+        None,
+        None,
+        body,
+    )
+}
+
 pub fn password_gate(page: &Page, username: &str, slug: &str, csrf_token: &str) -> Markup {
     let body = html! {
         article .password-gate {

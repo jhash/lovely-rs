@@ -13,6 +13,8 @@ pub struct App {
     pub is_default: bool,
     #[sqlx(default)]
     pub theme_json: serde_json::Value,
+    #[sqlx(default)]
+    pub published_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,7 +33,7 @@ pub async fn create_app(pool: &PgPool, new: NewApp) -> Result<App, DbError> {
         r#"
         INSERT INTO apps (slug, name, description, owner_id, is_default)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, slug, name, description, owner_id, is_default, theme_json, created_at, updated_at
+        RETURNING id, slug, name, description, owner_id, is_default, theme_json, published_at, created_at, updated_at
         "#,
     )
     .bind(&new.slug)
@@ -50,7 +52,7 @@ pub async fn find_default_app_for_owner(
     owner_id: Uuid,
 ) -> Result<Option<App>, DbError> {
     let row = sqlx::query_as::<_, App>(
-        "SELECT id, slug, name, description, owner_id, is_default, theme_json, created_at, updated_at \
+        "SELECT id, slug, name, description, owner_id, is_default, theme_json, published_at, created_at, updated_at \
          FROM apps WHERE owner_id = $1 AND is_default = TRUE",
     )
     .bind(owner_id)
@@ -65,7 +67,7 @@ pub async fn find_app_by_owner_and_slug(
     slug: &str,
 ) -> Result<Option<App>, DbError> {
     let row = sqlx::query_as::<_, App>(
-        "SELECT id, slug, name, description, owner_id, is_default, theme_json, created_at, updated_at \
+        "SELECT id, slug, name, description, owner_id, is_default, theme_json, published_at, created_at, updated_at \
          FROM apps WHERE owner_id = $1 AND slug = $2",
     )
     .bind(owner_id)
@@ -77,7 +79,7 @@ pub async fn find_app_by_owner_and_slug(
 
 pub async fn list_apps_by_owner(pool: &PgPool, owner_id: Uuid) -> Result<Vec<App>, DbError> {
     let rows = sqlx::query_as::<_, App>(
-        "SELECT id, slug, name, description, owner_id, is_default, theme_json, created_at, updated_at \
+        "SELECT id, slug, name, description, owner_id, is_default, theme_json, published_at, created_at, updated_at \
          FROM apps WHERE owner_id = $1 ORDER BY is_default DESC, name ASC",
     )
     .bind(owner_id)
@@ -102,7 +104,7 @@ pub async fn update_app(pool: &PgPool, id: Uuid, patch: AppPatch) -> Result<App,
             description = CASE WHEN $4::boolean THEN $5 ELSE description END,
             updated_at  = now()
         WHERE id = $1
-        RETURNING id, slug, name, description, owner_id, is_default, theme_json, created_at, updated_at
+        RETURNING id, slug, name, description, owner_id, is_default, theme_json, published_at, created_at, updated_at
         "#,
     )
     .bind(id)
@@ -127,6 +129,34 @@ pub async fn update_app_theme(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn set_app_published(pool: &PgPool, id: Uuid, publish: bool) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE apps SET published_at = CASE WHEN $2 THEN now() ELSE NULL END, \
+         updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(publish)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_published_apps_by_owner(
+    pool: &PgPool,
+    owner_id: Uuid,
+) -> Result<Vec<App>, DbError> {
+    let rows = sqlx::query_as::<_, App>(
+        "SELECT id, slug, name, description, owner_id, is_default, theme_json, published_at, \
+         created_at, updated_at \
+         FROM apps WHERE owner_id = $1 AND published_at IS NOT NULL \
+         ORDER BY is_default DESC, name ASC",
+    )
+    .bind(owner_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
 
 pub async fn delete_app(pool: &PgPool, id: Uuid) -> Result<u64, DbError> {

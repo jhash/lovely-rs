@@ -19,6 +19,8 @@ pub struct User {
     pub password_hash: Option<String>,
     pub totp_secret: Option<String>,
     pub role: String,
+    #[sqlx(default)]
+    pub public_published_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -30,12 +32,28 @@ pub struct NewUser {
     pub password_hash: Option<String>,
 }
 
+pub async fn set_user_public_published(
+    pool: &PgPool,
+    id: Uuid,
+    publish: bool,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE users SET public_published_at = CASE WHEN $2 THEN now() ELSE NULL END, \
+         updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(publish)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn create_user(pool: &PgPool, new_user: NewUser) -> Result<User, DbError> {
     let row = sqlx::query_as::<_, User>(
         r#"
         INSERT INTO users (username, email, password_hash)
         VALUES ($1, $2, $3)
-        RETURNING id, username, email, password_hash, totp_secret, role, created_at, updated_at
+        RETURNING id, username, email, password_hash, totp_secret, role, public_published_at, created_at, updated_at
         "#,
     )
     .bind(&new_user.username)
@@ -49,7 +67,7 @@ pub async fn create_user(pool: &PgPool, new_user: NewUser) -> Result<User, DbErr
 
 pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, DbError> {
     let row = sqlx::query_as::<_, User>(
-        "SELECT id, username, email, password_hash, totp_secret, role, created_at, updated_at \
+        "SELECT id, username, email, password_hash, totp_secret, role, public_published_at, created_at, updated_at \
          FROM users WHERE id = $1",
     )
     .bind(id)
@@ -60,7 +78,7 @@ pub async fn find_user_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>, Db
 
 pub async fn find_user_by_username(pool: &PgPool, username: &str) -> Result<Option<User>, DbError> {
     let row = sqlx::query_as::<_, User>(
-        "SELECT id, username, email, password_hash, totp_secret, role, created_at, updated_at \
+        "SELECT id, username, email, password_hash, totp_secret, role, public_published_at, created_at, updated_at \
          FROM users WHERE username = $1",
     )
     .bind(username)

@@ -1,8 +1,8 @@
 //! Full-screen 3-pane page builder layout.
 //!
 //! Body class `builder` opts the shell out of the centered `<main>` rule.
-//! The grid is: top bar (40px) above three columns — tree (≈280px),
-//! preview iframe (1fr), inspector (≈320px). Stacks under 80rem.
+//! The grid is: top bar above three columns — tree, preview iframe,
+//! inspector. Stacks under 64rem.
 
 use crate::views::{builder_shell, ShellCtx};
 use lovely_db::{App, Collection, Page, User};
@@ -10,29 +10,34 @@ use lovely_tree::{ElementRow, ElementTag};
 use maud::{html, Markup};
 use uuid::Uuid;
 
-/// What's currently selected in the inspector + tree. `None` means root.
+/// What's currently selected in the inspector + tree.
+///
+/// `Page` selects the page itself — its inspector shows page-level
+/// settings (title, description, head html, access, publish toggle).
+/// `Element` selects a tree element.
 #[derive(Clone, Copy)]
 pub enum Selection {
-    Root,
+    Page,
     Element(Uuid),
 }
 
 impl Selection {
-    pub fn from_query(sel: Option<&str>, root: Uuid) -> Self {
+    /// Resolve `?sel=` from the URL. The default selection is the
+    /// page (top-of-tree view), matching the lovely Swift app.
+    pub fn from_query(sel: Option<&str>, _root: Uuid) -> Self {
         match sel {
-            None | Some("") | Some("root") => Selection::Root,
+            None | Some("") | Some("page") | Some("root") => Selection::Page,
             Some(s) => match Uuid::parse_str(s) {
-                Ok(id) if id == root => Selection::Root,
                 Ok(id) => Selection::Element(id),
-                Err(_) => Selection::Root,
+                Err(_) => Selection::Page,
             },
         }
     }
 
-    pub fn id(&self, root: Uuid) -> Uuid {
+    pub fn param(&self) -> String {
         match self {
-            Selection::Root => root,
-            Selection::Element(id) => *id,
+            Selection::Page => "page".to_string(),
+            Selection::Element(id) => id.to_string(),
         }
     }
 }
@@ -95,19 +100,28 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
             (topbar(&ctx, &public_path, &edit_segment))
             aside #tree .builder-tree
                 hx-get=(format!("/apps/{}/pages/{}/tree?sel={}",
-                    ctx.app.slug, edit_segment, sel_param(ctx.selection, ctx.page.root_element)))
+                    ctx.app.slug, edit_segment, ctx.selection.param()))
                 hx-trigger="preview-stale from:body"
                 hx-swap="innerHTML" {
                 (tree_fragment(&ctx))
             }
             main .builder-canvas {
+                button .canvas-backdrop
+                    type="button"
+                    hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
+                        ctx.app.slug, edit_segment))
+                    hx-target="#inspector"
+                    hx-swap="innerHTML"
+                    hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page",
+                        ctx.app.slug, edit_segment))
+                    title="Click to edit page settings" {}
                 iframe #preview src=(preview_src) {}
             }
             aside #inspector .builder-inspector
                 hx-trigger="preview-stale from:body"
                 hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}&tab={}",
                     ctx.app.slug, edit_segment,
-                    sel_param(ctx.selection, ctx.page.root_element), ctx.tab.slug()))
+                    ctx.selection.param(), ctx.tab.slug()))
                 hx-swap="innerHTML" {
                 (inspector_fragment(&ctx))
             }
@@ -149,49 +163,10 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
                 }
             }
             div .spacer {}
-            form method="post"
-                 action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment)}
-                 .topbar-publish {
-                input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                input type="hidden" name="title" value=(ctx.page.title);
-                label .checkbox {
-                    input type="checkbox" name="publish" value="on"
-                        checked[ctx.page.published_at.is_some()]
-                        onchange="this.form.submit()";
-                    " Published"
-                }
-            }
-            details .topbar-settings {
-                summary { "Settings" }
-                div .topbar-settings-panel {
-                    h4 { "Custom <head> HTML" }
-                    p .muted { "Sanitized: no <script> or on* attrs." }
-                    form method="post"
-                         action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment) "/head"}
-                         .auth-form {
-                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                        textarea name="head_html" rows="4" {
-                            (ctx.page.head_html)
-                        }
-                        button type="submit" { "Save" }
-                    }
-                    h4 { "Access" }
-                    form method="post"
-                         action={"/apps/" (ctx.app.slug) "/pages/" (edit_segment) "/access"}
-                         .auth-form {
-                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                        label {
-                            "Password (leave blank to remove)"
-                            input type="password" name="password" placeholder=
-                                @if ctx.page.password_hash.is_some() { "currently set" } @else { "no password" };
-                        }
-                        label .checkbox {
-                            input type="checkbox" name="unlisted" value="on" checked[ctx.page.unlisted];
-                            " Unlisted (404 unless owner)"
-                        }
-                        button type="submit" { "Save" }
-                    }
-                }
+            @if ctx.page.published_at.is_some() {
+                span .pill .pill-published { "published" }
+            } @else {
+                span .pill .pill-draft { "draft" }
             }
             a href=(public_path) target="_blank" rel="noopener" { "View public ↗" }
         }
@@ -200,19 +175,47 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
 
 pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
     let root_id = ctx.page.root_element.unwrap_or_default();
-    let selected = ctx.selection.id(root_id);
     let edit_segment = page_segment(&ctx.page.slug);
+    let page_selected = matches!(ctx.selection, Selection::Page);
     html! {
         ul .tree-list .tree-root data-parent-id=(root_id) {
-            (tree_node(ctx, root_id, selected, &edit_segment, true))
+            li .tree-page-row
+                aria-current=[if page_selected { Some("true") } else { None }] {
+                button .tree-row-button
+                    type="button"
+                    data-sel-id="page"
+                    hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
+                        ctx.app.slug, edit_segment))
+                    hx-target="#inspector"
+                    hx-swap="innerHTML"
+                    hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page",
+                        ctx.app.slug, edit_segment)) {
+                    span .tree-page-glyph { "▤" }
+                    " "
+                    (ctx.page.title)
+                    @if ctx.page.published_at.is_some() {
+                        " " span .pill .pill-published { "published" }
+                    } @else {
+                        " " span .pill .pill-draft { "draft" }
+                    }
+                }
+            }
+            (tree_node(ctx, root_id, current_selection(ctx), &edit_segment, true))
         }
+    }
+}
+
+fn current_selection(ctx: &BuilderCtx<'_>) -> Option<Uuid> {
+    match ctx.selection {
+        Selection::Page => None,
+        Selection::Element(id) => Some(id),
     }
 }
 
 fn tree_node(
     ctx: &BuilderCtx<'_>,
     id: Uuid,
-    selected: Uuid,
+    selected: Option<Uuid>,
     edit_segment: &str,
     is_root: bool,
 ) -> Markup {
@@ -227,7 +230,7 @@ fn tree_node(
         .collect();
     children.sort_by_key(|r| sibling_index(ctx.elements, r.id.into_inner()));
 
-    let is_selected = id == selected;
+    let is_selected = selected == Some(id);
     let is_text = row.tag == "#text";
     let label = if is_text {
         row.text.clone().unwrap_or_default()
@@ -255,7 +258,6 @@ fn tree_node(
                         }
                     } @else {
                         code { (label) }
-                        @if is_root { " " span .pill { "root" } }
                         @if let Some(t) = &row.text {
                             " " span .muted { (t.chars().take(20).collect::<String>()) }
                         }
@@ -290,10 +292,15 @@ fn row_actions_menu(
             summary title="Actions" { "⋯" }
             div .tree-actions-menu {
                 @if !is_root {
-                    (sibling_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "add-before", "Add before"))
-                    (sibling_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "add-after", "Add after"))
+                    (quick_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                        "add-before", "div", "Add before"))
+                    (quick_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                        "add-after", "div", "Add after"))
                 }
-                (child_action_form(app_slug, edit_segment, &id.to_string(), csrf_token, "Add child"))
+                (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                    "div", "Add child"))
+                (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
+                    "#text", "Add text child"))
                 @if !is_root {
                     form
                         hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/duplicate"))
@@ -307,15 +314,8 @@ fn row_actions_menu(
                         hx-swap="none"
                         .tree-action-form {
                         input type="hidden" name="_csrf" value=(csrf_token);
-                        select name="tag" {
-                            @for tag in ElementTag::ALL {
-                                @if tag.name() != "#text" {
-                                    option value=(tag.name())
-                                        selected[tag.name() == "div"] { (tag.name()) }
-                                }
-                            }
-                        }
-                        button type="submit" { "Wrap in…" }
+                        input type="hidden" name="tag" value="div";
+                        button type="submit" { "Wrap in div" }
                     }
                     form
                         hx-post=(format!("/apps/{app_slug}/pages/{edit_segment}/elements/{id}/delete"))
@@ -330,12 +330,13 @@ fn row_actions_menu(
     }
 }
 
-fn sibling_action_form(
+fn quick_action(
     app_slug: &str,
     edit_segment: &str,
     id: &str,
     csrf_token: &str,
     op: &str,
+    tag: &str,
     label: &str,
 ) -> Markup {
     html! {
@@ -344,21 +345,18 @@ fn sibling_action_form(
             hx-swap="none"
             .tree-action-form {
             input type="hidden" name="_csrf" value=(csrf_token);
-            select name="tag" {
-                @for tag in ElementTag::ALL {
-                    option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
-                }
-            }
+            input type="hidden" name="tag" value=(tag);
             button type="submit" { (label) }
         }
     }
 }
 
-fn child_action_form(
+fn quick_child_action(
     app_slug: &str,
     edit_segment: &str,
     parent_id: &str,
     csrf_token: &str,
+    tag: &str,
     label: &str,
 ) -> Markup {
     html! {
@@ -368,55 +366,104 @@ fn child_action_form(
             .tree-action-form {
             input type="hidden" name="_csrf" value=(csrf_token);
             input type="hidden" name="parent_id" value=(parent_id);
-            select name="tag" {
-                @for tag in ElementTag::ALL {
-                    option value=(tag.name()) selected[tag.name() == "div"] { (tag.name()) }
-                }
-            }
+            input type="hidden" name="tag" value=(tag);
             button type="submit" { (label) }
         }
     }
 }
 
-/// Walks the prev_sibling chain starting from rows with prev_sibling = NULL
-/// and returns a 0-based index for the given id within its parent. Used
-/// only for stable display ordering in the tree sidebar.
-fn sibling_index(rows: &[lovely_tree::ElementRow], target: Uuid) -> usize {
-    let target_row = match rows.iter().find(|r| r.id.into_inner() == target) {
-        Some(r) => r,
-        None => return 0,
-    };
-    let parent = target_row.parent_id.map(|p| p.into_inner());
-    // Build sibling list under the same parent, ordered by chain.
-    let siblings: Vec<&lovely_tree::ElementRow> = rows
-        .iter()
-        .filter(|r| r.parent_id.map(|p| p.into_inner()) == parent)
-        .collect();
-    let mut chain: Vec<Uuid> = Vec::new();
-    if let Some(first) = siblings.iter().find(|r| r.prev_sibling.is_none()) {
-        chain.push(first.id.into_inner());
-        loop {
-            let last = *chain.last().unwrap();
-            match siblings
-                .iter()
-                .find(|r| r.prev_sibling.map(|p| p.into_inner()) == Some(last))
-            {
-                Some(next) => chain.push(next.id.into_inner()),
-                None => break,
+pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
+    match ctx.selection {
+        Selection::Page => page_inspector(ctx),
+        Selection::Element(id) => element_inspector(ctx, id),
+    }
+}
+
+fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
+    let edit_segment = page_segment(&ctx.page.slug);
+    let app_slug = &ctx.app.slug;
+    let publish_url = format!("/apps/{app_slug}/pages/{edit_segment}");
+    let head_url = format!("/apps/{app_slug}/pages/{edit_segment}/head");
+    let access_url = format!("/apps/{app_slug}/pages/{edit_segment}/access");
+    html! {
+        header .inspector-header {
+            span .tree-page-glyph { "▤" }
+            " "
+            strong { "Page" }
+            small .muted .inspector-id { (ctx.page.slug) }
+        }
+        section .inspector-section {
+            h4 { "Title & description" }
+            form
+                method="post" action=(publish_url)
+                .inspector-form
+                hx-post=(publish_url) hx-swap="none"
+                hx-trigger="input changed delay:400ms, change" {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                @if ctx.page.published_at.is_some() {
+                    input type="hidden" name="publish" value="on";
+                }
+                label {
+                    "Title"
+                    input type="text" name="title" value=(ctx.page.title);
+                }
+                label {
+                    "Description"
+                    textarea name="description" rows="2" {
+                        (ctx.page.description.clone().unwrap_or_default())
+                    }
+                }
+            }
+        }
+        section .inspector-section {
+            h4 { "Publish" }
+            form
+                hx-post=(publish_url) hx-swap="none"
+                hx-trigger="change"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                input type="hidden" name="title" value=(ctx.page.title);
+                label .checkbox {
+                    input type="checkbox" name="publish" value="on"
+                        checked[ctx.page.published_at.is_some()];
+                    " Published"
+                }
+            }
+        }
+        section .inspector-section {
+            h4 { "Custom <head>" }
+            p .muted { "Sanitized: no <script> or on* attrs." }
+            form
+                hx-post=(head_url) hx-swap="none"
+                hx-trigger="input changed delay:600ms, change"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                textarea name="head_html" rows="4" { (ctx.page.head_html) }
+            }
+        }
+        section .inspector-section {
+            h4 { "Access" }
+            form hx-post=(access_url) hx-swap="none"
+                hx-trigger="change, input changed delay:600ms"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Password (leave blank to remove)"
+                    input type="password" name="password" placeholder=
+                        @if ctx.page.password_hash.is_some() { "currently set" } @else { "no password" };
+                }
+                label .checkbox {
+                    input type="checkbox" name="unlisted" value="on" checked[ctx.page.unlisted];
+                    " Unlisted (404 unless owner)"
+                }
             }
         }
     }
-    chain.iter().position(|&x| x == target).unwrap_or(0)
 }
 
-pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
-    let root = ctx.page.root_element.unwrap_or_default();
-    let sel_id = ctx.selection.id(root);
+fn element_inspector(ctx: &BuilderCtx<'_>, id: Uuid) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
-    let row = ctx
-        .elements
-        .iter()
-        .find(|r| r.id.into_inner() == sel_id);
+    let row = ctx.elements.iter().find(|r| r.id.into_inner() == id);
     html! {
         @if let Some(row) = row {
             header .inspector-header {
@@ -433,9 +480,6 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                         }
                     }
                 }
-                @if ctx.page.root_element == Some(row.id.into_inner()) {
-                    " " span .pill { "root" }
-                }
                 small .muted .inspector-id { (row.id) }
             }
             nav .inspector-tabs {
@@ -444,7 +488,7 @@ pub fn inspector_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                         data-tab=(t.slug())
                         aria-current=[if t.slug() == ctx.tab.slug() { Some("true") } else { None }]
                         hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}&tab={}",
-                            ctx.app.slug, edit_segment, sel_id, t.slug()))
+                            ctx.app.slug, edit_segment, row.id, t.slug()))
                         hx-target="#inspector"
                         hx-swap="innerHTML" { (t.label()) }
                 }
@@ -479,61 +523,48 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let is_root = ctx.page.root_element == Some(row.id.into_inner());
     let is_text = row.tag == "#text";
     html! {
-        div .inspector-add {
-            h3 { "Add element" }
-            p .muted {
-                "Inline text is its own #text element. "
-                "Pick #text from the tag list or use the quick "
-                strong { "T" }
-                " button."
-            }
-            form
-                hx-post=(format!("/apps/{}/pages/{}/elements",
-                    ctx.app.slug, edit_segment))
-                hx-swap="none"
-                .inspector-form {
-                input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                input type="hidden" name="parent_id" value=(row.id);
-                label {
-                    "Tag"
-                    select name="tag" required {
-                        @for tag in ElementTag::ALL {
-                            option value=(tag.name())
-                                selected[tag.name() == "div"] { (tag.name()) }
-                        }
-                    }
-                }
+        @if !is_text {
+            div .inspector-add {
+                h3 { "Add element" }
                 div .inspector-add-buttons {
-                    @if !is_text {
+                    form
+                        hx-post=(format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment))
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="parent_id" value=(row.id);
+                        input type="hidden" name="tag" value="div";
                         button type="submit" { "Add child" }
                     }
-                    @if !is_root {
-                        button type="submit"
-                            formaction=(format!("/apps/{}/pages/{}/elements/{}/add-before",
-                                ctx.app.slug, edit_segment, row.id))
-                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-before",
-                                ctx.app.slug, edit_segment, row.id)) { "Add before" }
-                        button type="submit"
-                            formaction=(format!("/apps/{}/pages/{}/elements/{}/add-after",
-                                ctx.app.slug, edit_segment, row.id))
-                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
-                                ctx.app.slug, edit_segment, row.id)) { "Add after" }
-                    }
-                }
-            }
-            @if !is_text {
-                div .inspector-add-text-quick {
                     form
-                        hx-post=(format!("/apps/{}/pages/{}/elements",
-                            ctx.app.slug, edit_segment))
+                        hx-post=(format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment))
                         hx-swap="none"
                         .inline-form {
                         input type="hidden" name="_csrf" value=(ctx.csrf_token);
                         input type="hidden" name="parent_id" value=(row.id);
                         input type="hidden" name="tag" value="#text";
-                        button type="submit" title="Add an inline #text child" {
-                            span .tree-text-glyph { "T" }
-                            " Add text child"
+                        button type="submit" {
+                            span .tree-text-glyph { "T" } " Add text child"
+                        }
+                    }
+                    @if !is_root {
+                        form
+                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-before",
+                                ctx.app.slug, edit_segment, row.id))
+                            hx-swap="none"
+                            .inline-form {
+                            input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                            input type="hidden" name="tag" value="div";
+                            button type="submit" { "Add before" }
+                        }
+                        form
+                            hx-post=(format!("/apps/{}/pages/{}/elements/{}/add-after",
+                                ctx.app.slug, edit_segment, row.id))
+                            hx-swap="none"
+                            .inline-form {
+                            input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                            input type="hidden" name="tag" value="div";
+                            button type="submit" { "Add after" }
                         }
                     }
                 }
@@ -554,19 +585,22 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         None => (bind, ""),
     };
     let is_text = row.tag == "#text";
+    let patch_url = format!(
+        "/apps/{}/pages/{}/elements/{}",
+        ctx.app.slug, edit_segment, row.id
+    );
     html! {
         @if is_text {
             form
-                hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
-                    ctx.app.slug, edit_segment, row.id))
+                hx-patch=(patch_url)
                 hx-swap="none"
+                hx-trigger="input changed delay:400ms, change"
                 .inspector-form {
                 input type="hidden" name="_csrf" value=(ctx.csrf_token);
                 label {
                     "Text content"
                     textarea name="text" rows="3" autofocus { (row.text.clone().unwrap_or_default()) }
                 }
-                button type="submit" { "Save" }
             }
         } @else {
             p .muted {
@@ -583,9 +617,9 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
             div .data-binding {
                 h3 { "Bind to data" }
                 form
-                    hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
-                        ctx.app.slug, edit_segment, row.id))
+                    hx-patch=(patch_url)
                     hx-swap="none"
+                    hx-trigger="change"
                     .inspector-form {
                     input type="hidden" name="_csrf" value=(ctx.csrf_token);
                     label {
@@ -601,61 +635,133 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                         "Field"
                         input type="text" name="binding_field" value=(bind_field) placeholder="title";
                     }
-                    button type="submit" { "Save binding" }
                 }
                 @if !bind.is_empty() {
                     p .muted { "Currently bound to " code { (bind) } }
                 }
             }
-        } @else {
-            p .muted .data-binding-empty {
-                "No collections in this app. "
-                a href={"/apps/" (ctx.app.slug) "/data"} { "Create one" }
-                " to bind data."
-            }
         }
+    }
+}
+
+/// Tag-aware dedicated attribute fields. Renders the most-likely
+/// inputs for the selected element's tag (href on <a>, src/alt on
+/// <img>, etc.) above the freeform attribute editor.
+fn dedicated_attrs_for_tag(tag: &str) -> &'static [(&'static str, &'static str, &'static str)] {
+    // (attr_name, html_input_type, placeholder)
+    match tag {
+        "a" => &[
+            ("href", "url", "https://example.com"),
+            ("target", "text", "_blank"),
+            ("rel", "text", "noopener"),
+        ],
+        "img" => &[
+            ("src", "url", "https://example.com/img.png"),
+            ("alt", "text", "Description"),
+            ("width", "number", ""),
+            ("height", "number", ""),
+        ],
+        "input" => &[
+            ("type", "text", "text"),
+            ("name", "text", ""),
+            ("placeholder", "text", ""),
+            ("value", "text", ""),
+        ],
+        "textarea" => &[
+            ("name", "text", ""),
+            ("placeholder", "text", ""),
+            ("rows", "number", ""),
+        ],
+        "select" => &[("name", "text", "")],
+        "form" => &[
+            ("action", "url", "/path"),
+            ("method", "text", "post"),
+        ],
+        "button" => &[
+            ("type", "text", "button"),
+            ("name", "text", ""),
+        ],
+        "label" => &[("for", "text", "")],
+        "iframe" => &[
+            ("src", "url", ""),
+            ("title", "text", ""),
+        ],
+        _ => &[],
     }
 }
 
 fn attrs_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
+    let patch_url = format!(
+        "/apps/{}/pages/{}/elements/{}",
+        ctx.app.slug, edit_segment, row.id
+    );
     let attrs: Vec<(String, String)> = row
         .attrs_json
         .as_object()
         .map(|m| {
             m.iter()
+                .filter(|(k, _)| !k.starts_with("data-lovely-"))
                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                 .collect()
         })
         .unwrap_or_default();
+    let dedicated = dedicated_attrs_for_tag(&row.tag);
     html! {
-        ul .attrs-list {
-            @for (name, value) in &attrs {
-                li {
-                    code { (name) }
-                    " "
-                    span .muted { (value) }
+        @if !dedicated.is_empty() {
+            section .inspector-section {
+                h4 { "Tag attributes" }
+                @for (name, input_type, placeholder) in dedicated {
+                    @let current = attrs.iter().find(|(n, _)| n == name)
+                        .map(|(_, v)| v.clone()).unwrap_or_default();
+                    form
+                        hx-patch=(patch_url)
+                        hx-swap="none"
+                        hx-trigger="input changed delay:400ms, change"
+                        .inspector-form
+                        data-attr=(name) {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="attr_name" value=(name);
+                        label {
+                            (name)
+                            input type=(*input_type) name="attr_value"
+                                value=(current) placeholder=(*placeholder);
+                        }
+                    }
                 }
             }
-            @if attrs.is_empty() {
-                li .muted { "No attributes set." }
-            }
         }
-        form
-            hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
-                ctx.app.slug, edit_segment, row.id))
-            hx-swap="none"
-            .inspector-form {
-            input type="hidden" name="_csrf" value=(ctx.csrf_token);
-            label {
-                "Attribute name"
-                input type="text" name="attr_name" placeholder="class";
+        section .inspector-section {
+            h4 { "Other attributes" }
+            ul .attrs-list {
+                @for (name, value) in &attrs {
+                    @if !dedicated.iter().any(|(n, _, _)| n == name) {
+                        li {
+                            code { (name) }
+                            " "
+                            span .muted { (value) }
+                        }
+                    }
+                }
+                @if attrs.iter().filter(|(n, _)| !dedicated.iter().any(|(d, _, _)| d == n)).count() == 0 {
+                    li .muted { "No other attributes." }
+                }
             }
-            label {
-                "Value"
-                input type="text" name="attr_value" placeholder="hero";
+            form
+                hx-patch=(patch_url)
+                hx-swap="none"
+                hx-trigger="change, input changed delay:600ms"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Attribute name"
+                    input type="text" name="attr_name" placeholder="class";
+                }
+                label {
+                    "Value"
+                    input type="text" name="attr_value" placeholder="hero";
+                }
             }
-            button type="submit" { "Set attribute" }
         }
     }
 }
@@ -667,21 +773,25 @@ fn style_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         .get("style")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let patch_url = format!(
+        "/apps/{}/pages/{}/elements/{}",
+        ctx.app.slug, edit_segment, row.id
+    );
     html! {
         form
-            hx-patch=(format!("/apps/{}/pages/{}/elements/{}",
-                ctx.app.slug, edit_segment, row.id))
+            hx-patch=(patch_url)
             hx-swap="none"
+            hx-trigger="input changed delay:400ms, change"
             .inspector-form {
             input type="hidden" name="_csrf" value=(ctx.csrf_token);
             input type="hidden" name="attr_name" value="style";
             label {
                 "Inline style (CSS)"
-                textarea name="attr_value" rows="6" placeholder="padding: 1rem; color: #c026d3;" {
+                textarea name="attr_value" rows="6"
+                    placeholder="padding: 1rem; color: var(--lovely-primary);" {
                     (current_style)
                 }
             }
-            button type="submit" { "Save style" }
         }
     }
 }
@@ -694,9 +804,32 @@ fn page_segment(slug: &str) -> String {
     }
 }
 
-fn sel_param(sel: Selection, root: Option<Uuid>) -> String {
-    match sel {
-        Selection::Root => root.map(|r| r.to_string()).unwrap_or_else(|| "root".into()),
-        Selection::Element(id) => id.to_string(),
+/// Walks the prev_sibling chain starting from rows with prev_sibling = NULL
+/// and returns a 0-based index for the given id within its parent. Used
+/// only for stable display ordering in the tree sidebar.
+fn sibling_index(rows: &[lovely_tree::ElementRow], target: Uuid) -> usize {
+    let target_row = match rows.iter().find(|r| r.id.into_inner() == target) {
+        Some(r) => r,
+        None => return 0,
+    };
+    let parent = target_row.parent_id.map(|p| p.into_inner());
+    let siblings: Vec<&lovely_tree::ElementRow> = rows
+        .iter()
+        .filter(|r| r.parent_id.map(|p| p.into_inner()) == parent)
+        .collect();
+    let mut chain: Vec<Uuid> = Vec::new();
+    if let Some(first) = siblings.iter().find(|r| r.prev_sibling.is_none()) {
+        chain.push(first.id.into_inner());
+        loop {
+            let last = *chain.last().unwrap();
+            match siblings
+                .iter()
+                .find(|r| r.prev_sibling.map(|p| p.into_inner()) == Some(last))
+            {
+                Some(next) => chain.push(next.id.into_inner()),
+                None => break,
+            }
+        }
     }
+    chain.iter().position(|&x| x == target).unwrap_or(0)
 }

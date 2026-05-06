@@ -29,6 +29,8 @@ pub fn router(state: AppState) -> Router {
         .route("/apps/{app_slug}/rename", post(handlers::apps::post_app_rename))
         .route("/apps/{app_slug}/delete", post(handlers::apps::post_app_delete))
         .route("/apps/{app_slug}/theme", post(handlers::apps::post_app_theme))
+        .route("/apps/{app_slug}/publish", post(handlers::apps::post_app_publish))
+        .route("/profile/publish", post(handlers::apps::post_profile_publish))
         // --- data (collections + records) ---
         .route(
             "/apps/{app_slug}/data",

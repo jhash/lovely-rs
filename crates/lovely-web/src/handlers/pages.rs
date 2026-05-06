@@ -307,7 +307,7 @@ pub async fn get_page_preview(
     // user's CSS lives inside the iframe, so it can't fight ours.
     let html = format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title>\
-         <link rel=\"stylesheet\" href=\"/static/style.css\"></head><body>{}</body></html>",
+         <link rel=\"stylesheet\" href=\"/static/style.css\"></head><body class=\"public\">{}</body></html>",
         html_escape(&page.title),
         rendered.into_string()
     );
@@ -641,14 +641,33 @@ async fn render_public(
     let Some((owner, app)) = find_default_app_for_username(&state.pg, username).await? else {
         return Err(WebError::NotFound);
     };
-    let page = find_page_by_app_and_slug(&state.pg, app.id, slug)
-        .await?
-        .ok_or(WebError::NotFound)?;
-
-    // Owner always sees their page. Anonymous viewers may need to unlock
-    // (password) or be hidden (unlisted).
     let is_owner = viewer.as_ref().map(|v| v.id == owner.id).unwrap_or(false);
+    let page_opt = find_page_by_app_and_slug(&state.pg, app.id, slug).await?;
+
+    // No page at this slug — fall through to a profile listing if the
+    // user has published their profile (or the viewer is the owner).
+    let Some(page) = page_opt else {
+        if slug.is_empty() && (is_owner || owner.public_published_at.is_some()) {
+            let apps = if is_owner {
+                lovely_db::list_apps_by_owner(&state.pg, owner.id).await?
+            } else {
+                lovely_db::list_published_apps_by_owner(&state.pg, owner.id).await?
+            };
+            let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+            let html =
+                pages_views::user_profile(&owner, &apps, viewer.as_ref(), &token).into_string();
+            return Ok((jar, axum::response::Html(html)).into_response());
+        }
+        return Err(WebError::NotFound);
+    };
+
+    // Owner always sees their page. Anonymous viewers may need to
+    // unlock (password), be hidden (unlisted), or be turned away if
+    // the page is still a draft.
     if !is_owner {
+        if page.published_at.is_none() {
+            return Err(WebError::NotFound);
+        }
         if page.unlisted {
             return Err(WebError::NotFound);
         }

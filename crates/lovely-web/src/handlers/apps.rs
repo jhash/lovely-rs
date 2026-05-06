@@ -265,6 +265,47 @@ pub async fn post_app_theme(
     Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response())
 }
 
+#[derive(Deserialize, Default)]
+pub struct PublishToggleForm {
+    #[serde(default)]
+    pub publish: Option<String>,
+    #[serde(default)]
+    pub _csrf: Option<String>,
+}
+
+fn truthy(v: Option<&str>) -> bool {
+    matches!(v, Some("on") | Some("true") | Some("1"))
+}
+
+pub async fn post_app_publish(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(app_slug): Path<String>,
+    jar: CookieJar,
+    Form(form): Form<PublishToggleForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    lovely_db::set_app_published(&state.pg, app.id, truthy(form.publish.as_deref())).await?;
+    Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response())
+}
+
+pub async fn post_profile_publish(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    jar: CookieJar,
+    Form(form): Form<PublishToggleForm>,
+) -> Result<Response, WebError> {
+    let cookie_token = jar.get(csrf::CSRF_COOKIE).map(|c| c.value().to_string());
+    csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
+    lovely_db::set_user_public_published(&state.pg, user.id, truthy(form.publish.as_deref()))
+        .await?;
+    Ok(Redirect::to("/apps").into_response())
+}
+
 // Legacy redirects so old /pages URLs still land somewhere.
 pub async fn redirect_pages_index() -> Redirect {
     Redirect::to("/apps")
