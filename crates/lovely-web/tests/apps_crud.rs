@@ -304,7 +304,9 @@ async fn bind_element_to_collection_field_renders_value() {
         .await
         .unwrap();
 
-    // Find the page's root element + bind it.
+    // Add a #text child under the root and bind THAT — text now lives
+    // only on #text nodes; binding a regular element is a no-op for
+    // direct value substitution.
     let root: uuid::Uuid = sqlx::query_scalar(
         "SELECT p.root_element FROM pages p JOIN apps a ON a.id = p.app_id \
           JOIN users u ON u.id = a.owner_id \
@@ -313,12 +315,29 @@ async fn bind_element_to_collection_field_renders_value() {
     .fetch_one(&app.pg)
     .await
     .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages/home2/elements", app.url))
+        .form(&[
+            ("tag", "#text"),
+            ("parent_id", root.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    let txt: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
 
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
         .patch(format!(
-            "{}/apps/personal/pages/home2/elements/{root}",
+            "{}/apps/personal/pages/home2/elements/{txt}",
             app.url
         ))
         .form(&[

@@ -13,5 +13,5 @@ pub use attrs::{AttrList, AttrName};
 pub use build::ElementRow;
 pub use errors::TreeError;
 pub use iter::{AncestorsIter, ChildrenIter, DescendantsIter};
-pub use tags::ElementTag;
+pub use tags::{is_text_tag, ElementTag};
 pub use types::{ElementUuid, NodeId};

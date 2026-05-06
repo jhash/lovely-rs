@@ -27,6 +27,11 @@ macro_rules! define_tags {
 }
 
 impl ElementTag {
+    /// Canonical name for the inline text node. Use this constant in
+    /// place of the bare `"#text"` literal so a future rename has one
+    /// place to land. Pairs with [`ElementTag::is_text`].
+    pub const TEXT_NAME: &'static str = "#text";
+
     /// True for tags that can't have children: void HTML elements,
     /// form-control elements (input, textarea, select), and the inline
     /// `#text` node. Mirrors lovely Swift's leaf-element constraint.
@@ -42,6 +47,17 @@ impl ElementTag {
                 | ElementTag::Select
         )
     }
+
+    /// Convenience: is this the special inline `#text` node?
+    pub fn is_text(self) -> bool {
+        matches!(self, ElementTag::Text)
+    }
+}
+
+/// Helper for callers holding a `&str` tag (db rows, form fields). True
+/// when the tag matches the canonical `#text` name.
+pub fn is_text_tag(s: &str) -> bool {
+    s == ElementTag::TEXT_NAME
 }
 
 define_tags! {

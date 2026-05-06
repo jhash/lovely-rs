@@ -196,16 +196,36 @@ async fn phase3_tree_fragment_lists_elements_with_selection() {
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn phase3_patch_text_returns_hx_trigger_preview_stale() {
+    // Text now lives only on `#text` nodes — patch the text on a #text
+    // child rather than on the root div.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     let (_page, root) = fixture(&app).await.unwrap();
 
     let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages/about/elements", app.url))
+        .form(&[
+            ("tag", "#text"),
+            ("parent_id", root.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    let txt: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+
+    let token = app.csrf_token().await.unwrap();
     let r = app
         .client
         .patch(format!(
-            "{}/apps/personal/pages/about/elements/{root}",
+            "{}/apps/personal/pages/about/elements/{txt}",
             app.url
         ))
         .header("X-CSRF-Token", &token)
@@ -213,7 +233,7 @@ async fn phase3_patch_text_returns_hx_trigger_preview_stale() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "PATCH element should succeed");
+    assert_eq!(r.status(), 200, "PATCH text element should succeed");
     let trigger = r.headers().get("HX-Trigger").map(|v| v.to_str().unwrap());
     assert_eq!(
         trigger,
@@ -223,7 +243,7 @@ async fn phase3_patch_text_returns_hx_trigger_preview_stale() {
 
     let saved: Option<String> =
         sqlx::query_scalar("SELECT (payload->>'text')::text FROM elements WHERE id = $1")
-            .bind(root)
+            .bind(txt)
             .fetch_one(&app.pg)
             .await
             .unwrap();

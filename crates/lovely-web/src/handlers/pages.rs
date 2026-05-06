@@ -730,12 +730,13 @@ async fn render_public(
         return Err(WebError::NotFound);
     };
 
-    // Owner always sees their page. Anonymous viewers may need to
-    // unlock (password), be hidden (unlisted), or be turned away if
-    // the page is still a draft.
+    // Owner always sees their page. Non-owners viewing an unpublished
+    // page get bounced to the home route — the user explicitly asked
+    // for a redirect over a 404 here. Unlisted pages stay 404 since
+    // that's a "hidden" semantics, not "doesn't exist for them".
     if !is_owner {
         if page.published_at.is_none() {
-            return Err(WebError::NotFound);
+            return Ok(Redirect::to("/").into_response());
         }
         if page.unlisted {
             return Err(WebError::NotFound);
@@ -803,6 +804,13 @@ pub async fn delete_page_handler(
     if page.author_id != user.id {
         return Err(WebError::Forbidden);
     }
+    // The empty-slug Home page is structural — every app has one and
+    // it can't be removed.
+    if page.slug.is_empty() {
+        return Err(WebError::Unprocessable(
+            "The Home page can't be deleted.".into(),
+        ));
+    }
     lovely_db::delete_page(&state.pg, page.id).await?;
     Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response())
 }
@@ -815,6 +823,11 @@ pub struct UpdatePageForm {
     pub description: Option<String>,
     #[serde(default)]
     pub publish: Option<String>,
+    /// Disambiguator: when this is present, the publish checkbox state
+    /// is canonical (off ↔ unchecked). When absent, publish is left
+    /// alone so non-publish forms (title, description) don't clobber it.
+    #[serde(default, rename = "_publish_form")]
+    pub publish_form: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -838,8 +851,14 @@ pub async fn post_page_update(
     if page.author_id != user.id {
         return Err(WebError::Forbidden);
     }
-    let publish = form.publish.as_deref().map(|v| v == "on" || v == "true");
-    lovely_db::update_page(
+    // `_publish_form=1` marks the publish checkbox form. Without it
+    // (e.g., the title+description autosave form), leave publish alone.
+    let publish = if form.publish_form.is_some() {
+        Some(form.publish.as_deref() == Some("on"))
+    } else {
+        form.publish.as_deref().map(|v| v == "on" || v == "true")
+    };
+    let updated = lovely_db::update_page(
         &state.pg,
         page.id,
         lovely_db::PagePatch {
@@ -849,12 +868,48 @@ pub async fn post_page_update(
         },
     )
     .await?;
+
+    // Publish-form submissions render OOB-swap fragments so the
+    // visible pills (topbar + tree page row) reflect the new state
+    // without a full reload. Other submissions just redirect.
+    if form.publish_form.is_some() {
+        let body = publish_pill_oob_fragment(updated.published_at.is_some());
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "HX-Trigger",
+            axum::http::HeaderValue::from_static("preview-stale"),
+        );
+        return Ok((
+            axum::http::StatusCode::OK,
+            headers,
+            axum::response::Html(body),
+        )
+            .into_response());
+    }
     Ok(Redirect::to(&format!(
         "/apps/{}/pages/{}/edit",
         app.slug,
         slug_path_segment(&page.slug)
     ))
     .into_response())
+}
+
+/// HTML fragment with two `hx-swap-oob` spans matching the `id`s used
+/// in the topbar and tree-page-row. Renders the right pill class for
+/// the new published state.
+fn publish_pill_oob_fragment(published: bool) -> String {
+    let (class, label) = if published {
+        ("pill pill-published", "published")
+    } else {
+        ("pill pill-draft", "draft")
+    };
+    format!(
+        r#"<span id="topbar-publish-pill" hx-swap-oob="true" class="{class}">{label}</span>"#
+        // Tree page row — id matches the maud template marker.
+        // The two-fragment string is concatenated so both swap.
+    ) + &format!(
+        r#"<span id="tree-page-pill" hx-swap-oob="true" class="{class}">{label}</span>"#
+    )
 }
 
 fn is_valid_slug(s: &str) -> bool {

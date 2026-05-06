@@ -164,9 +164,9 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
             }
             div .spacer {}
             @if ctx.page.published_at.is_some() {
-                span .pill .pill-published { "published" }
+                span #topbar-publish-pill .pill .pill-published { "published" }
             } @else {
-                span .pill .pill-draft { "draft" }
+                span #topbar-publish-pill .pill .pill-draft { "draft" }
             }
             a href=(public_path) target="_blank" rel="noopener" { "View public ↗" }
         }
@@ -194,9 +194,9 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                     " "
                     (ctx.page.title)
                     @if ctx.page.published_at.is_some() {
-                        " " span .pill .pill-published { "published" }
+                        " " span #tree-page-pill .pill .pill-published { "published" }
                     } @else {
-                        " " span .pill .pill-draft { "draft" }
+                        " " span #tree-page-pill .pill .pill-draft { "draft" }
                     }
                 }
             }
@@ -231,7 +231,7 @@ fn tree_node(
     children.sort_by_key(|r| sibling_index(ctx.elements, r.id.into_inner()));
 
     let is_selected = selected == Some(id);
-    let is_text = row.tag == "#text";
+    let is_text = row.is_text();
     let label = if is_text {
         row.text.clone().unwrap_or_default()
     } else {
@@ -302,7 +302,7 @@ fn row_actions_menu(
                     (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
                         "div", "Add child"))
                     (quick_child_action(app_slug, edit_segment, &id.to_string(), csrf_token,
-                        "#text", "Add text child"))
+                        ElementTag::TEXT_NAME, "Add text child"))
                 }
                 @if !is_root {
                     form
@@ -421,11 +421,12 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
         section .inspector-section {
             h4 { "Publish" }
             form
-                hx-post=(publish_url) hx-swap="none"
+                hx-post=(publish_url)
                 hx-trigger="change"
+                hx-swap="none"
                 .inspector-form {
                 input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                input type="hidden" name="title" value=(ctx.page.title);
+                input type="hidden" name="_publish_form" value="1";
                 (labeled_checkbox("publish", "Published", ctx.page.published_at.is_some()))
             }
         }
@@ -454,6 +455,42 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
                 (labeled_checkbox("unlisted", "Unlisted (404 unless owner)", ctx.page.unlisted))
             }
         }
+        @if let Some(root_id) = ctx.page.root_element {
+            (page_add_element_section(ctx, root_id))
+        }
+    }
+}
+
+/// "Add element" buttons rendered when the page itself is selected —
+/// they create children of the page's root element so the user can
+/// keep adding top-level content without having to click into the
+/// root in the tree.
+fn page_add_element_section(ctx: &BuilderCtx<'_>, root_id: Uuid) -> Markup {
+    let edit_segment = page_segment(&ctx.page.slug);
+    let elements_url = format!(
+        "/apps/{}/pages/{}/elements",
+        ctx.app.slug, edit_segment
+    );
+    html! {
+        div .inspector-add {
+            h3 { "Add element" }
+            div .inspector-add-buttons {
+                form hx-post=(elements_url) hx-swap="none" .inline-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    input type="hidden" name="parent_id" value=(root_id);
+                    input type="hidden" name="tag" value="div";
+                    button type="submit" { "Add child" }
+                }
+                form hx-post=(elements_url) hx-swap="none" .inline-form {
+                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                    input type="hidden" name="parent_id" value=(root_id);
+                    input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
+                    button type="submit" {
+                        span .tree-text-glyph { "T" } " Add text child"
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -476,7 +513,6 @@ fn element_inspector(ctx: &BuilderCtx<'_>, id: Uuid) -> Markup {
                         }
                     }
                 }
-                small .muted .inspector-id { (row.id) }
             }
             nav .inspector-tabs {
                 @for t in [InspectorTab::Content, InspectorTab::Attrs, InspectorTab::Style] {
@@ -538,7 +574,7 @@ fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                         .inline-form {
                         input type="hidden" name="_csrf" value=(ctx.csrf_token);
                         input type="hidden" name="parent_id" value=(row.id);
-                        input type="hidden" name="tag" value="#text";
+                        input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
                         button type="submit" {
                             span .tree-text-glyph { "T" } " Add text child"
                         }
@@ -583,7 +619,7 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let (src_coll, src_field) = split_ref(source);
-    let is_text = row.tag == "#text";
+    let is_text = row.is_text();
     let is_input_like = matches!(row.tag.as_str(), "input" | "textarea" | "select");
     let patch_url = format!(
         "/apps/{}/pages/{}/elements/{}",

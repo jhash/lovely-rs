@@ -52,20 +52,21 @@ async fn fixture(app: &TestApp, page_slug: &str) -> uuid::Uuid {
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn add_before_inserts_with_correct_prev_sibling() {
+    // Use distinct tags as identity markers since text-content lives
+    // only on `#text` nodes now and these tests need a non-text tag.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     register(&app, "alice").await.unwrap();
     let root = fixture(&app, "ord").await;
 
-    // Existing child A.
+    // Existing child A (h1).
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
         .post(format!("{}/apps/personal/pages/ord/elements", app.url))
         .form(&[
-            ("tag", "p"),
-            ("text", "A"),
+            ("tag", "h1"),
             ("parent_id", root.to_string().as_str()),
             ("_csrf", &token),
         ])
@@ -73,13 +74,13 @@ async fn add_before_inserts_with_correct_prev_sibling() {
         .await
         .unwrap();
     let a: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 LIMIT 1")
+        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h1'")
             .bind(root)
             .fetch_one(&app.pg)
             .await
             .unwrap();
 
-    // Insert B *before* A.
+    // Insert B (h2) *before* A.
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
@@ -87,15 +88,15 @@ async fn add_before_inserts_with_correct_prev_sibling() {
             "{}/apps/personal/pages/ord/elements/{a}/add-before",
             app.url
         ))
-        .form(&[("tag", "p"), ("text", "B"), ("_csrf", &token)])
+        .form(&[("tag", "h2"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
     assert!(r.status().is_redirection() || r.status() == 200);
 
     // Now A.prev_sibling == B.id and B.prev_sibling IS NULL.
-    let rows: Vec<(uuid::Uuid, Option<uuid::Uuid>, Option<String>)> = sqlx::query_as(
-        "SELECT id, prev_sibling, payload->>'text' FROM elements \
+    let rows: Vec<(uuid::Uuid, Option<uuid::Uuid>, String)> = sqlx::query_as(
+        "SELECT id, prev_sibling, tag FROM elements \
          WHERE parent_id = $1 ORDER BY created_at ASC",
     )
     .bind(root)
@@ -103,8 +104,8 @@ async fn add_before_inserts_with_correct_prev_sibling() {
     .await
     .unwrap();
     assert_eq!(rows.len(), 2);
-    let (a_row, _, _) = rows.iter().find(|r| r.2.as_deref() == Some("A")).unwrap();
-    let (b_row, b_prev, _) = rows.iter().find(|r| r.2.as_deref() == Some("B")).unwrap();
+    let (a_row, _, _) = rows.iter().find(|r| r.2 == "h1").unwrap();
+    let (b_row, b_prev, _) = rows.iter().find(|r| r.2 == "h2").unwrap();
     assert_eq!(b_prev, &None, "B should be first (prev_sibling NULL)");
     let (_, a_prev, _) = rows.iter().find(|r| &r.0 == a_row).unwrap();
     assert_eq!(a_prev, &Some(*b_row), "A.prev_sibling should now be B");
@@ -120,13 +121,14 @@ async fn add_after_relinks_next_sibling() {
     let root = fixture(&app, "ord2").await;
 
     let token = app.csrf_token().await.unwrap();
-    for t in ["A", "C"] {
+    // Use distinct tags as identity markers — h1=A, h3=C — since text
+    // payloads don't survive on regular elements.
+    for t in ["h1", "h3"] {
         let _ = app
             .client
             .post(format!("{}/apps/personal/pages/ord2/elements", app.url))
             .form(&[
-                ("tag", "p"),
-                ("text", t),
+                ("tag", t),
                 ("parent_id", root.to_string().as_str()),
                 ("_csrf", &token),
             ])
@@ -135,14 +137,14 @@ async fn add_after_relinks_next_sibling() {
             .unwrap();
     }
     let a: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND payload->>'text' = 'A'",
+        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h1'",
     )
     .bind(root)
     .fetch_one(&app.pg)
     .await
     .unwrap();
     let c: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND payload->>'text' = 'C'",
+        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h3'",
     )
     .bind(root)
     .fetch_one(&app.pg)
@@ -157,7 +159,7 @@ async fn add_after_relinks_next_sibling() {
             .unwrap();
     assert_eq!(prev_c, Some(a));
 
-    // Insert B after A.
+    // Insert B (h2) after A.
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
@@ -165,14 +167,14 @@ async fn add_after_relinks_next_sibling() {
             "{}/apps/personal/pages/ord2/elements/{a}/add-after",
             app.url
         ))
-        .form(&[("tag", "p"), ("text", "B"), ("_csrf", &token)])
+        .form(&[("tag", "h2"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
     assert!(r.status().is_redirection() || r.status() == 200);
 
     let b: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND payload->>'text' = 'B'",
+        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h2'",
     )
     .bind(root)
     .fetch_one(&app.pg)
@@ -216,10 +218,11 @@ async fn inline_text_renders_without_wrapping_tag() {
         .unwrap();
 
     let token = app.csrf_token().await.unwrap();
-    // [#text 'follow the link: ', <a>here</a>, #text '!']
+    // Tree shape: root → [#text "follow the link: ", <a> → [#text "here"], #text "!"]
+    // Add the two top-level #text siblings + an <a>.
     for (tag, text) in [
         ("#text", "follow the link: "),
-        ("a", "here"),
+        ("a", ""),
         ("#text", "!"),
     ] {
         let _ = app
@@ -235,6 +238,25 @@ async fn inline_text_renders_without_wrapping_tag() {
             .await
             .unwrap();
     }
+    // Add a #text "here" child inside the <a>.
+    let a_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages/inline/elements", app.url))
+        .form(&[
+            ("tag", "#text"),
+            ("text", "here"),
+            ("parent_id", a_id.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
 
     let anon = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -299,7 +321,6 @@ async fn sidebar_duplicate_action() {
         .post(format!("{}/apps/personal/pages/dup/elements", app.url))
         .form(&[
             ("tag", "p"),
-            ("text", "X"),
             ("parent_id", root.to_string().as_str()),
             ("_csrf", &token),
         ])
@@ -324,12 +345,11 @@ async fn sidebar_duplicate_action() {
         .await
         .unwrap();
     assert!(r.status().is_redirection() || r.status() == 200);
-    let n: (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM elements WHERE parent_id = $1 AND payload->>'text' = 'X'",
-    )
-    .bind(root)
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let n: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM elements WHERE parent_id = $1 AND tag = 'p'")
+            .bind(root)
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
     assert_eq!(n.0, 2, "duplicate should create a sibling copy");
 }

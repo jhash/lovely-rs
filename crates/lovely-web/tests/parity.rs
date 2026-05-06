@@ -95,15 +95,32 @@ async fn phase9_repeat_renders_one_child_per_record() {
             .unwrap();
     }
 
-    // Add a child <li> to the root with text "{{title}}".
+    // Add a child <li> with a #text child carrying "{{title}}".
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
         .post(format!("{}/apps/personal/pages/feed/elements", app.url))
         .form(&[
             ("tag", "li"),
-            ("text", "{{title}}"),
             ("parent_id", root.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    let li: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'li' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages/feed/elements", app.url))
+        .form(&[
+            ("tag", "#text"),
+            ("text", "{{title}}"),
+            ("parent_id", li.to_string().as_str()),
             ("_csrf", &token),
         ])
         .send()
@@ -149,18 +166,38 @@ async fn phase9_repeat_renders_one_child_per_record() {
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn phase10_undo_text_change() {
+    // Text now lives only on `#text` nodes — add one as a child of the
+    // root and exercise undo/redo on its text payload.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     register(&app, "alice").await.unwrap();
     let root = make_page(&app, "history").await;
 
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/pages/history/elements", app.url))
+        .form(&[
+            ("tag", "#text"),
+            ("parent_id", root.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    let txt: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+
     // First text mutation.
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
         .patch(format!(
-            "{}/apps/personal/pages/history/elements/{root}",
+            "{}/apps/personal/pages/history/elements/{txt}",
             app.url
         ))
         .form(&[("text", "first"), ("_csrf", &token)])
@@ -173,7 +210,7 @@ async fn phase10_undo_text_change() {
     let _ = app
         .client
         .patch(format!(
-            "{}/apps/personal/pages/history/elements/{root}",
+            "{}/apps/personal/pages/history/elements/{txt}",
             app.url
         ))
         .form(&[("text", "second"), ("_csrf", &token)])
@@ -192,13 +229,13 @@ async fn phase10_undo_text_change() {
         .unwrap();
     assert!(r.status() == 200 || r.status() == 303, "{}", r.status());
 
-    let txt: Option<String> =
+    let saved: Option<String> =
         sqlx::query_scalar("SELECT (payload->>'text') FROM elements WHERE id = $1")
-            .bind(root)
+            .bind(txt)
             .fetch_one(&app.pg)
             .await
             .unwrap();
-    assert_eq!(txt.as_deref(), Some("first"));
+    assert_eq!(saved.as_deref(), Some("first"));
 
     // Redo goes back to "second".
     let token = app.csrf_token().await.unwrap();
@@ -210,13 +247,13 @@ async fn phase10_undo_text_change() {
         .await
         .unwrap();
 
-    let txt: Option<String> =
+    let saved: Option<String> =
         sqlx::query_scalar("SELECT (payload->>'text') FROM elements WHERE id = $1")
-            .bind(root)
+            .bind(txt)
             .fetch_one(&app.pg)
             .await
             .unwrap();
-    assert_eq!(txt.as_deref(), Some("second"));
+    assert_eq!(saved.as_deref(), Some("second"));
 }
 
 // =============================================================

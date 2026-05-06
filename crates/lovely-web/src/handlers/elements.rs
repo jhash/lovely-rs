@@ -103,8 +103,14 @@ pub async fn post_add_element(
     .fetch_optional(&state.pg)
     .await
     .map_err(lovely_db::DbError::Sqlx)?;
-    let payload = json!({"text": form.text.unwrap_or_default()});
-    let is_text = form.tag == "#text";
+    // Only `#text` nodes carry text content. Regular elements get an
+    // empty payload — text is added later by attaching a `#text` child.
+    let payload = if lovely_tree::is_text_tag(&form.tag) {
+        json!({"text": form.text.unwrap_or_default()})
+    } else {
+        json!({})
+    };
+    let is_text = lovely_tree::is_text_tag(&form.tag);
     let new_row = lovely_db::insert_element(
         &state.pg,
         lovely_db::InsertElement {
@@ -235,8 +241,14 @@ async fn add_sibling(
         Position::Before => target_prev, // new takes target's old prev
         Position::After => Some(target_id),
     };
-    let payload = json!({"text": form.text.unwrap_or_default()});
-    let is_text = form.tag == "#text";
+    // Only `#text` nodes carry text content. Regular elements get an
+    // empty payload — text is added later by attaching a `#text` child.
+    let payload = if lovely_tree::is_text_tag(&form.tag) {
+        json!({"text": form.text.unwrap_or_default()})
+    } else {
+        json!({})
+    };
+    let is_text = lovely_tree::is_text_tag(&form.tag);
     let new_row = lovely_db::insert_element(
         &state.pg,
         lovely_db::InsertElement {
@@ -320,7 +332,7 @@ pub async fn post_wrap_element(
     if Some(target_id) == page.root_element {
         return Err(WebError::Unprocessable("cannot wrap the root element".into()));
     }
-    if !is_valid_tag(&form.tag) || form.tag == "#text" {
+    if !is_valid_tag(&form.tag) || lovely_tree::is_text_tag(&form.tag) {
         return Err(WebError::BadRequest(format!("unwrappable tag: {}", form.tag)));
     }
     let target: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
@@ -510,7 +522,22 @@ pub async fn post_update_element(
     if page.author_id != user.id {
         return Err(WebError::Forbidden);
     }
-    let payload = json!({"text": form.text.unwrap_or_default()});
+    // Only `#text` nodes can store text. Refuse to set text on any
+    // other tag — the legacy "parent text" path is gone.
+    let tag: Option<(String,)> =
+        sqlx::query_as("SELECT tag FROM elements WHERE id = $1 AND page_id = $2")
+            .bind(element_id)
+            .bind(page.id)
+            .fetch_optional(&state.pg)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
+    let Some((tag,)) = tag else { return Err(WebError::NotFound) };
+    if !lovely_tree::is_text_tag(&tag) {
+        return Err(WebError::Unprocessable(
+            "Text content lives on `#text` child elements, not on the parent.".into(),
+        ));
+    }
+    let payload = json!({ "text": form.text.unwrap_or_default() });
     lovely_db::update_element(
         &state.pg,
         element_id,

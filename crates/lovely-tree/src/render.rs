@@ -52,9 +52,10 @@ fn render_iter(tree: &Tree, root: NodeId, out: &mut String) {
                     continue;
                 }
                 out.push('>');
-                if let Some(t) = &node.text {
-                    push_escaped(t, out);
-                }
+                // Only `#text` nodes carry text; regular elements use
+                // `#text` children to express their content. We drop
+                // `node.text` here unconditionally (it's already None for
+                // non-Text rows after the DB layer).
                 stack.push(Step::Close(tag));
                 let mut children: Vec<NodeId> = Vec::new();
                 let mut c = node.first_child;
@@ -105,13 +106,17 @@ mod tests {
 
     #[test]
     fn renders_simple_tree() {
+        // Text lives on `#text` child nodes; regular elements no longer
+        // carry their own text payload.
         let mut tree = Tree::new(ElementUuid::new_v4(), ElementTag::Div);
         let mut node = nn(ElementTag::P);
-        node.text = Some("hello".into());
         let mut attrs = AttrList::new();
         attrs.push(AttrName::new("class").unwrap(), "container");
         node.attrs = attrs;
-        tree.append_child(tree.root(), node).unwrap();
+        let p = tree.append_child(tree.root(), node).unwrap();
+        let mut t = nn(ElementTag::Text);
+        t.text = Some("hello".into());
+        tree.append_child(p, t).unwrap();
         let html = tree.render().into_string();
         assert!(html.starts_with("<div"));
         assert!(html.contains("<p class=\"container\">hello</p>"));
@@ -121,9 +126,10 @@ mod tests {
     #[test]
     fn escapes_text_content() {
         let mut tree = Tree::new(ElementUuid::new_v4(), ElementTag::Div);
-        let mut n = nn(ElementTag::P);
-        n.text = Some("<script>alert(1)</script>".into());
-        tree.append_child(tree.root(), n).unwrap();
+        let p = tree.append_child(tree.root(), nn(ElementTag::P)).unwrap();
+        let mut t = nn(ElementTag::Text);
+        t.text = Some("<script>alert(1)</script>".into());
+        tree.append_child(p, t).unwrap();
         let html = tree.render().into_string();
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
@@ -174,12 +180,14 @@ mod tests {
         let a = tree
             .append_child(tree.root(), nn(ElementTag::Section))
             .unwrap();
-        let mut b = nn(ElementTag::P);
-        b.text = Some("inside".into());
-        tree.append_child(a, b).unwrap();
-        let mut c = nn(ElementTag::P);
-        c.text = Some("outside".into());
-        tree.append_child(tree.root(), c).unwrap();
+        let b = tree.append_child(a, nn(ElementTag::P)).unwrap();
+        let mut bt = nn(ElementTag::Text);
+        bt.text = Some("inside".into());
+        tree.append_child(b, bt).unwrap();
+        let c = tree.append_child(tree.root(), nn(ElementTag::P)).unwrap();
+        let mut ct = nn(ElementTag::Text);
+        ct.text = Some("outside".into());
+        tree.append_child(c, ct).unwrap();
         let html = tree.render_subtree(a).into_string();
         assert!(html.contains("inside"));
         assert!(!html.contains("outside"));

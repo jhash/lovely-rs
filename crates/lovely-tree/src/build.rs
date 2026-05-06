@@ -17,6 +17,20 @@ pub struct ElementRow {
     pub text: Option<String>,
 }
 
+impl ElementRow {
+    /// True when this row's tag matches the supplied canonical name.
+    /// Prefer this over `row.tag == "literal"` so renames have one
+    /// place to land.
+    pub fn is_tag(&self, name: &str) -> bool {
+        self.tag == name
+    }
+
+    /// True when this row is the inline `#text` node.
+    pub fn is_text(&self) -> bool {
+        crate::tags::is_text_tag(&self.tag)
+    }
+}
+
 impl Tree {
     /// Build a `Tree` from a flat slice of rows. Order of input is irrelevant.
     /// Validates: exactly one root, no orphan parent_id references, no cycles,

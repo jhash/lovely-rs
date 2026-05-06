@@ -44,6 +44,21 @@ pub async fn create_app(pool: &PgPool, new: NewApp) -> Result<App, DbError> {
     .fetch_one(pool)
     .await
     .map_err(crate::users::map_unique_violation)?;
+    // Every app gets a default Home page (slug = ""), undeletable. The
+    // owner can publish or unpublish it; the page handler enforces the
+    // un-deletable rule.
+    let _ = crate::pages::create_page(
+        pool,
+        crate::pages::NewPage {
+            app_id: row.id,
+            slug: String::new(),
+            title: "Home".into(),
+            description: None,
+            author_id: row.owner_id,
+            root_tag: lovely_tree::ElementTag::Div,
+        },
+    )
+    .await?;
     Ok(row)
 }
 

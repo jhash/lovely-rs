@@ -18,14 +18,32 @@ pub struct ElementDbRow {
 }
 
 impl ElementDbRow {
+    /// True when this DB row matches the supplied canonical tag name.
+    pub fn is_tag(&self, name: &str) -> bool {
+        self.tag == name
+    }
+
+    /// True when this row stores an inline `#text` node.
+    pub fn is_text(&self) -> bool {
+        lovely_tree::tags::is_text_tag(&self.tag)
+    }
+
     pub fn into_tree_row(self) -> ElementRow {
+        // Only #text nodes carry text. Other tags store text inside
+        // `#text` child elements — the legacy payload.text on regular
+        // elements is ignored.
+        let text = if self.is_text() {
+            extract_text(&self.payload)
+        } else {
+            None
+        };
         ElementRow {
             id: ElementUuid(self.id),
             parent_id: self.parent_id.map(ElementUuid),
             prev_sibling: self.prev_sibling.map(ElementUuid),
             tag: self.tag,
             attrs_json: self.attrs,
-            text: extract_text(&self.payload),
+            text,
         }
     }
 }

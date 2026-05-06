@@ -52,59 +52,48 @@ async fn make_page(app: &TestApp, page_slug: &str) -> uuid::Uuid {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn unpublished_user_profile_404s_anon() {
+async fn unpublished_home_page_redirects_anon_to_root() {
+    // Each app now has a default Home page (slug = ""). When that home
+    // page hasn't been published, anon visits to /alice get bounced to
+    // the home route — not 404, per the most recent product call.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     register(&app, "alice").await.unwrap();
-    // No published default-app home page exists yet, and the user has
-    // no pages. Anonymous /alice should be 404.
     let anon = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
     let r = anon.get(format!("{}/alice", app.url)).send().await.unwrap();
-    assert_eq!(r.status(), 404);
+    assert!(r.status().is_redirection(), "got {}", r.status());
+    let loc = r
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(loc, "/");
 }
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn published_user_profile_lists_published_apps() {
+async fn published_home_page_renders_for_anon() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
     register(&app, "alice").await.unwrap();
 
-    // Toggle the user profile public.
-    let token = app.csrf_token().await.unwrap();
-    let r = app
-        .client
-        .post(format!("{}/profile/publish", app.url))
-        .form(&[("publish", "on"), ("_csrf", &token)])
-        .send()
+    // Publish the home page directly (UI does this via the inspector).
+    sqlx::query("UPDATE pages SET published_at = now() WHERE slug = ''")
+        .execute(&app.pg)
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
-
-    // Publish the personal app too.
-    let token = app.csrf_token().await.unwrap();
-    let r = app
-        .client
-        .post(format!("{}/apps/personal/publish", app.url))
-        .form(&[("publish", "on"), ("_csrf", &token)])
-        .send()
-        .await
-        .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200);
 
     let anon = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
     let r = anon.get(format!("{}/alice", app.url)).send().await.unwrap();
-    assert_eq!(r.status(), 200);
-    let body = r.text().await.unwrap();
-    assert!(body.contains("Personal"), "should list the published app: {body}");
+    assert_eq!(r.status(), 200, "published home should render for anon");
 }
 
 // ============================================================

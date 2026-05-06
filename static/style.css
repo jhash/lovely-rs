@@ -412,14 +412,21 @@ ul.app-list li:last-child, ul.page-list li:last-child {
 }
 
 /* Checkbox + label, inline. Works inside any form (auth-form,
-   inspector-form, etc.) without inheriting the parent's column flex. */
-label.checkbox-row {
-  display: inline-flex;
+   inspector-form, etc.) without inheriting the parent's column flex.
+   Bumped specificity (`label.checkbox-row.checkbox-row`) so it wins
+   against `.inspector-form label` which has the same base specificity
+   and would otherwise stack the input above the label. */
+label.checkbox-row,
+label.checkbox-row.checkbox-row {
+  display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--space-2);
   margin: var(--space-1) 0;
+  align-self: flex-start;
   color: var(--ink);
+  width: auto;
 }
 label.checkbox-row input[type="checkbox"] {
   width: auto;
@@ -612,11 +619,15 @@ body.builder .builder-canvas {
   background: var(--hairline);
   display: flex;
   align-items: stretch;
-  justify-content: stretch;
+  /* `justify-content: stretch` is not a valid value — flex children
+     don't stretch on the main axis. Make the iframe a flex-grow item
+     instead so it fills the column horizontally. */
   min-width: 0;
+  min-height: 0;
   padding: var(--space-4);
 }
 body.builder .builder-canvas iframe {
+  flex: 1 1 auto;
   width: 100%;
   height: 100%;
   border: 0;

@@ -205,9 +205,25 @@ pub async fn patch_element(
         patch.attrs = Some(serde_json::Value::Object(obj));
     }
 
-    // Apply text update if present.
+    // Apply text update — only meaningful for `#text` nodes. Reject
+    // attempts to set text on a regular element so the legacy concept
+    // (parent-tail text) can't sneak back in.
     if let Some(text) = form.text {
-        patch.payload = Some(json!({ "text": text }));
+        let current_tag: Option<(String,)> =
+            sqlx::query_as("SELECT tag FROM elements WHERE id = $1")
+                .bind(element_id)
+                .fetch_optional(&state.pg)
+                .await
+                .map_err(lovely_db::DbError::Sqlx)?;
+        let final_tag = patch.tag.as_deref().or(current_tag.as_ref().map(|t| t.0.as_str()));
+        if final_tag.is_some_and(lovely_tree::is_text_tag) {
+            patch.payload = Some(json!({ "text": text }));
+        } else if !text.is_empty() {
+            return Err(WebError::Unprocessable(
+                "Text content lives on `#text` child elements, not on the parent."
+                    .into(),
+            ));
+        }
     }
 
     // Apply repeat update if present. Stored as `data-lovely-repeat`.
@@ -316,13 +332,27 @@ pub async fn patch_element(
         patch.attrs = Some(serde_json::Value::Object(merged));
     }
 
-    if patch.tag.is_some() || patch.attrs.is_some() || patch.payload.is_some() {
+    let tag_changed = patch.tag.is_some();
+    if tag_changed || patch.attrs.is_some() || patch.payload.is_some() {
         lovely_db::update_element(&state.pg, element_id, patch).await?;
         lovely_db::snapshot_page(&state.pg, page.id).await?;
     }
 
+    // A tag change rewrites the inspector — without explicit re-select,
+    // the asides' static hx-get URLs point at the OLD tag's expected
+    // tab/section and end up bouncing the user up to the parent. Force
+    // re-selection of this element instead.
     let mut headers = HeaderMap::new();
-    headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));
+    if tag_changed {
+        let payload = serde_json::json!({
+            "lovely:select": { "id": element_id.to_string(), "focus": "" },
+        });
+        if let Ok(v) = HeaderValue::from_str(&payload.to_string()) {
+            headers.insert("HX-Trigger", v);
+        }
+    } else {
+        headers.insert("HX-Trigger", HeaderValue::from_static("preview-stale"));
+    }
     Ok((StatusCode::OK, headers, Html("")).into_response())
 }
 

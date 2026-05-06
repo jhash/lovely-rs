@@ -131,7 +131,13 @@ async fn inspector_can_change_tag() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn change_to_text_preserves_text() {
+async fn changing_a_text_node_tag_strips_text() {
+    // Text now lives only on `#text` nodes — converting a #text node
+    // to a regular element should leave the row in a sensible state.
+    // The text payload may persist in the row (we don't try to scrub
+    // it on tag change) but it must NOT render as the new element's
+    // content. The render layer drops `payload.text` for non-#text
+    // tags entirely.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
@@ -143,7 +149,7 @@ async fn change_to_text_preserves_text() {
         .client
         .post(format!("{}/apps/personal/pages/ttext/elements", app.url))
         .form(&[
-            ("tag", "p"),
+            ("tag", "#text"),
             ("text", "hello"),
             ("parent_id", root.to_string().as_str()),
             ("_csrf", &token),
@@ -151,34 +157,52 @@ async fn change_to_text_preserves_text() {
         .send()
         .await
         .unwrap();
-    let p: uuid::Uuid =
+    let txt: uuid::Uuid =
         sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 LIMIT 1")
             .bind(root)
             .fetch_one(&app.pg)
             .await
             .unwrap();
 
+    // Promote it to a `<div>` via the tag picker.
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
         .patch(format!(
-            "{}/apps/personal/pages/ttext/elements/{p}",
+            "{}/apps/personal/pages/ttext/elements/{txt}",
             app.url
         ))
-        .form(&[("tag", "#text"), ("_csrf", &token)])
+        .form(&[("tag", "div"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
-    let (tag, text): (String, Option<String>) = sqlx::query_as(
-        "SELECT tag, payload->>'text' FROM elements WHERE id = $1",
-    )
-    .bind(p)
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
-    assert_eq!(tag, "#text");
-    assert_eq!(text.as_deref(), Some("hello"));
+    let tag: String = sqlx::query_scalar("SELECT tag FROM elements WHERE id = $1")
+        .bind(txt)
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
+    assert_eq!(tag, "div");
+
+    // Publish and check the rendered HTML doesn't surface "hello" as
+    // the div's content.
+    sqlx::query("UPDATE pages SET published_at = now() WHERE slug = 'ttext'")
+        .execute(&app.pg)
+        .await
+        .unwrap();
+    let r = app
+        .client
+        .get(format!("{}/alice/ttext", app.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body = r.text().await.unwrap();
+    // The div must not carry tail-text — only #text children render text.
+    assert!(
+        !body.contains("<div>hello</div>"),
+        "regular elements must not render their own text payload: {body}"
+    );
 }
 
 // ============================================================
