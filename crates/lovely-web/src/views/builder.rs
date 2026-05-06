@@ -669,8 +669,16 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let (src_coll, src_field) = split_ref(source);
+    let repeat = row
+        .attrs_json
+        .get("data-lovely-repeat")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let is_text = row.is_text();
     let is_input_like = matches!(row.tag.as_str(), "input" | "textarea" | "select");
+    let is_leaf = ElementTag::from_name(&row.tag)
+        .map(|t| t.is_leaf())
+        .unwrap_or(true);
     let patch_url = format!(
         "/apps/{}/pages/{}/elements/{}",
         ctx.app.slug, edit_segment, row.id
@@ -712,6 +720,56 @@ fn content_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
                 DataDirection::Read,
                 bind, bind_coll, bind_field,
             ))
+            @if !is_leaf && !is_text {
+                (repeat_section(ctx, &patch_url, repeat))
+            }
+        }
+    }
+}
+
+/// "Repeat per record" inspector section. Pick a collection and the
+/// element's first child becomes a template instantiated once per
+/// record. Auto-saves on change. Disconnect button drops the
+/// `data-lovely-repeat` attribute.
+fn repeat_section(ctx: &BuilderCtx<'_>, patch_url: &str, current: &str) -> Markup {
+    html! {
+        div .data-binding {
+            h3 { "Repeat per record" }
+            p .muted {
+                "Pick a collection and this element's first child becomes a "
+                "template — one copy will render for each record. Use "
+                code { "{{field}}" }
+                " inside the template to substitute record values."
+            }
+            form
+                hx-patch=(patch_url)
+                hx-swap="none"
+                hx-trigger="change"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Collection"
+                    select name="repeat_collection" {
+                        option value="" { "(none)" }
+                        @for c in ctx.collections {
+                            option value=(c.name) selected[c.name == current] { (c.name) }
+                        }
+                    }
+                }
+            }
+            @if !current.is_empty() {
+                div .binding-current {
+                    p .muted { "Repeating over " code { (current) } }
+                    form
+                        hx-patch=(patch_url)
+                        hx-swap="none"
+                        .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="repeat_collection" value="";
+                        button type="submit" .danger { "Stop repeating" }
+                    }
+                }
+            }
         }
     }
 }
