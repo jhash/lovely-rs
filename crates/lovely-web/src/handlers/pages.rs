@@ -342,7 +342,7 @@ pub async fn post_page_unlock(
 /// its first child as a template and duplicate it once per record.
 /// `{{field}}` in the template's text gets replaced with the field
 /// value. The template element itself is removed; clones replace it.
-async fn expand_repeaters(
+pub(crate) async fn expand_repeaters(
     pg: &sqlx::PgPool,
     app_id: uuid::Uuid,
     rows: &mut Vec<lovely_tree::ElementRow>,
@@ -491,6 +491,117 @@ fn collect_subtree(
         .collect()
 }
 
+/// Cross-collection interpolation: replaces `{{coll.field}}` tokens
+/// in every row's text + attribute values with the first record's
+/// value from the named collection. Distinct from
+/// [`expand_repeaters`], which works against per-iteration records.
+/// Caches the per-collection first record so we don't re-fetch.
+pub(crate) async fn interpolate_collection_refs(
+    pg: &sqlx::PgPool,
+    app_id: uuid::Uuid,
+    rows: &mut [lovely_tree::ElementRow],
+) -> Result<(), WebError> {
+    use std::collections::{HashMap, HashSet};
+    // Collect every `{{coll.field}}` referenced anywhere in the tree
+    // so we know which collections to fetch.
+    let mut seen: HashSet<String> = HashSet::new();
+    for row in rows.iter() {
+        if let Some(t) = &row.text {
+            collect_refs(t, &mut seen);
+        }
+        if let serde_json::Value::Object(m) = &row.attrs_json {
+            for (_, v) in m {
+                if let Some(s) = v.as_str() {
+                    collect_refs(s, &mut seen);
+                }
+            }
+        }
+    }
+    if seen.is_empty() {
+        return Ok(());
+    }
+    // Resolve each referenced collection's first record once.
+    let mut cache: HashMap<String, serde_json::Value> = HashMap::new();
+    for coll_name in seen {
+        let coll = lovely_db::find_collection_by_name(pg, app_id, &coll_name).await?;
+        if let Some(c) = coll {
+            if let Some(rec) = lovely_db::list_records(pg, c.id).await?.into_iter().next() {
+                cache.insert(coll_name, rec.data_json);
+            }
+        }
+    }
+    if cache.is_empty() {
+        return Ok(());
+    }
+    for row in rows.iter_mut() {
+        if let Some(t) = row.text.take() {
+            row.text = Some(interpolate_named(&t, &cache));
+        }
+        if let serde_json::Value::Object(m) = &mut row.attrs_json {
+            for (_, v) in m.iter_mut() {
+                if let Some(s) = v.as_str() {
+                    *v = serde_json::Value::String(interpolate_named(s, &cache));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_refs(s: &str, out: &mut std::collections::HashSet<String>) {
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            if let Some(end) = s[i + 2..].find("}}") {
+                let inner = s[i + 2..i + 2 + end].trim();
+                if let Some((coll, _field)) = inner.split_once('.') {
+                    out.insert(coll.trim().to_string());
+                }
+                i += 2 + end + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+fn interpolate_named(
+    s: &str,
+    cache: &std::collections::HashMap<String, serde_json::Value>,
+) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            if let Some(end) = s[i + 2..].find("}}") {
+                let inner = s[i + 2..i + 2 + end].trim();
+                if let Some((coll, field)) = inner.split_once('.') {
+                    if let Some(rec) = cache.get(coll.trim()) {
+                        if let Some(v) = rec.get(field.trim()).and_then(|v| v.as_str()) {
+                            out.push_str(v);
+                            i += 2 + end + 2;
+                            continue;
+                        } else if let Some(v) = rec.get(field.trim()) {
+                            out.push_str(&v.to_string());
+                            i += 2 + end + 2;
+                            continue;
+                        }
+                    }
+                }
+                // Unresolved → leave the literal `{{...}}` in place.
+                out.push_str(&s[i..i + 2 + end + 2]);
+                i += 2 + end + 2;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 fn interpolate(template: &str, record: &serde_json::Value) -> String {
     let mut out = String::with_capacity(template.len());
     let bytes = template.as_bytes();
@@ -535,7 +646,7 @@ fn interpolate_attrs(attrs: &serde_json::Value, record: &serde_json::Value) -> s
 /// replaces the element's text with the value pulled from the
 /// referenced collection's first record. Cheap O(n × bindings) for
 /// now — caches collection lookups within the call.
-async fn resolve_bindings(
+pub(crate) async fn resolve_bindings(
     pg: &sqlx::PgPool,
     app_id: uuid::Uuid,
     rows: &mut [lovely_tree::ElementRow],
@@ -772,6 +883,7 @@ async fn render_public(
     let mut rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
     expand_repeaters(&state.pg, app.id, &mut rows).await?;
     resolve_bindings(&state.pg, app.id, &mut rows).await?;
+    interpolate_collection_refs(&state.pg, app.id, &mut rows).await?;
     let tree = Tree::from_db_rows(&rows)?;
     let rendered = tree.render();
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);

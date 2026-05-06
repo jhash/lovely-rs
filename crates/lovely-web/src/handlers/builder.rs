@@ -81,13 +81,18 @@ pub async fn get_canvas_fragment(
     let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
         .await?
         .ok_or(WebError::NotFound)?;
-    let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    let mut rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
     if rows.is_empty() {
         // Page has no root yet — render an empty placeholder so the
         // canvas still has dimensions and the click-to-select page
         // backdrop continues to work.
         return Ok(Html(String::new()).into_response());
     }
+    // Resolve data bindings + expand repeaters so the editor preview
+    // matches what an anon viewer would see — keeps WYSIWYG honest.
+    super::pages::expand_repeaters(&state.pg, app.id, &mut rows).await?;
+    super::pages::resolve_bindings(&state.pg, app.id, &mut rows).await?;
+    super::pages::interpolate_collection_refs(&state.pg, app.id, &mut rows).await?;
     let tree = Tree::from_db_rows(&rows)?;
     let html = tree.render().into_string();
     Ok(Html(html).into_response())
