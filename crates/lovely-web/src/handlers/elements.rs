@@ -19,12 +19,14 @@ fn hx_ok_preview_stale() -> Response {
     (StatusCode::OK, headers, Html("")).into_response()
 }
 
-/// 200 + HX-Trigger that bundles `preview-stale` and `lovely:select`.
-/// `select_id` is the element to select after the swap. `focus` is one
-/// of `"text"` (focus the textarea) or `""` (no focus).
+/// 200 + HX-Trigger emitting only `lovely:select`. The JS handler does
+/// the inspector + tree swap with the NEW selection AND reloads the
+/// iframe — we deliberately don't include `preview-stale` here because
+/// the inspector/tree asides still carry their initial-render
+/// `hx-get?sel=OLD` URL, and that listener would race the JS swap and
+/// win with the stale selection.
 fn hx_ok_select(select_id: Uuid, focus: &str) -> Response {
     let payload = json!({
-        "preview-stale": {},
         "lovely:select": { "id": select_id.to_string(), "focus": focus },
     });
     let mut headers = HeaderMap::new();

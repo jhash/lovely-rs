@@ -42,12 +42,17 @@ async fn make_page(app: &TestApp, slug: &str) -> uuid::Uuid {
 }
 
 fn assert_select_trigger(trigger: &str, expected_focus: &str) -> String {
-    // Should be JSON like `{"preview-stale":{},"lovely:select":{"id":"...","focus":"text"}}`.
+    // Should be JSON like `{"lovely:select":{"id":"...","focus":"text"}}`.
+    // `preview-stale` is intentionally omitted: the JS lovely:select
+    // handler updates the asides' hx-get URLs and reloads the iframe
+    // itself, so emitting preview-stale here would let the asides'
+    // initial-render hx-get fetch with the OLD ?sel= and race the JS
+    // swap to a stale inspector.
     let v: serde_json::Value = serde_json::from_str(trigger)
         .unwrap_or_else(|_| panic!("HX-Trigger not JSON: {trigger}"));
     assert!(
-        v.get("preview-stale").is_some(),
-        "trigger missing preview-stale: {trigger}"
+        v.get("preview-stale").is_none(),
+        "select trigger must NOT include preview-stale (would race JS swap): {trigger}"
     );
     let sel = v
         .get("lovely:select")

@@ -232,19 +232,40 @@
     var m = window.location.pathname.match(/^(\/apps\/[^/]+\/pages\/[^/]+)/);
     if (!m) return;
     var base = m[1];
+    var inspectorUrl = base + "/inspector?sel=" + id;
+    var treeUrl = base + "/tree?sel=" + id;
+
     if (window.history && window.history.replaceState) {
       window.history.replaceState(null, "", base + "/edit?sel=" + id);
     }
+
+    // Update the outer aside elements' static hx-get URLs so any
+    // subsequent `preview-stale` from-body events fetch with the new
+    // selection rather than the initial-render one.
+    var inspectorEl = document.getElementById("inspector");
+    var treeEl = document.getElementById("tree");
+    if (inspectorEl) inspectorEl.setAttribute("hx-get", inspectorUrl);
+    if (treeEl) treeEl.setAttribute("hx-get", treeUrl);
+
     if (window.htmx) {
-      window.htmx.ajax("GET", base + "/inspector?sel=" + id, {
+      // Re-process the asides so htmx picks up the new hx-get value.
+      if (inspectorEl) window.htmx.process(inspectorEl);
+      if (treeEl) window.htmx.process(treeEl);
+      // Swap the bodies once now with the new selection.
+      window.htmx.ajax("GET", inspectorUrl, {
         target: "#inspector",
         swap: "innerHTML",
       });
-      window.htmx.ajax("GET", base + "/tree?sel=" + id, {
+      window.htmx.ajax("GET", treeUrl, {
         target: "#tree",
         swap: "innerHTML",
       });
     }
+    // Refresh the live preview iframe (server emits no preview-stale
+    // for selection events, so do it ourselves).
+    var ifr = document.getElementById("preview");
+    if (ifr && ifr.contentWindow) ifr.contentWindow.location.reload();
+
     if (focus === "text") {
       // Wait for the inspector to swap in before focusing.
       var tries = 0;
