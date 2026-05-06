@@ -118,16 +118,16 @@ async fn phase2_edit_page_is_full_screen_builder() {
     );
     assert!(body.contains("id=\"tree\""), "expected #tree sidebar");
     assert!(
-        body.contains("id=\"preview\""),
-        "expected #preview iframe container"
+        body.contains("id=\"preview-canvas\""),
+        "expected #preview-canvas inline render area"
     );
     assert!(
         body.contains("id=\"inspector\""),
         "expected #inspector right rail"
     );
     assert!(
-        body.contains("/preview"),
-        "preview iframe should src an /preview route"
+        body.contains("/canvas"),
+        "preview canvas should hx-get the /canvas fragment"
     );
 }
 
@@ -265,7 +265,7 @@ async fn phase5_owner_preview_route_renders_draft() {
 
     let r = app
         .client
-        .get(format!("{}/apps/personal/pages/about/preview", app.url))
+        .get(format!("{}/apps/personal/pages/about/canvas", app.url))
         .send()
         .await
         .unwrap();
@@ -294,7 +294,7 @@ async fn phase5_preview_route_is_owner_only() {
         .build()
         .unwrap();
     let r = anon
-        .get(format!("{}/apps/personal/pages/about/preview", app.url))
+        .get(format!("{}/apps/personal/pages/about/canvas", app.url))
         .send()
         .await
         .unwrap();
@@ -374,7 +374,7 @@ async fn phase4_patch_attr_persists_and_renders() {
     // round-trip: rendered preview includes class="hero"
     let r = app
         .client
-        .get(format!("{}/apps/personal/pages/about/preview", app.url))
+        .get(format!("{}/apps/personal/pages/about/canvas", app.url))
         .send()
         .await
         .unwrap();

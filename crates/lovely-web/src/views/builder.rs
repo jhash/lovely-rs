@@ -85,16 +85,33 @@ pub struct BuilderCtx<'a> {
 }
 
 pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
+    use lovely_tree::Tree;
     let edit_segment = page_segment(&ctx.page.slug);
-    let public_path = if ctx.page.slug.is_empty() {
-        format!("/{}", ctx.user.username)
-    } else {
-        format!("/{}/{}", ctx.user.username, ctx.page.slug)
+    // Public path is app-aware: default app uses the short
+    // `/{user}/{slug}` shape; non-default apps include the app slug
+    // (`/{user}/{app}/{slug}`). The empty home slug becomes `~home`
+    // when it would otherwise leave a trailing path segment empty,
+    // matching how editor URLs encode the home page.
+    let public_path = match (ctx.app.is_default, ctx.page.slug.as_str()) {
+        (true, "") => format!("/{}", ctx.user.username),
+        (true, slug) => format!("/{}/{}", ctx.user.username, slug),
+        (false, "") => format!("/{}/{}/~home", ctx.user.username, ctx.app.slug),
+        (false, slug) => format!("/{}/{}/{}", ctx.user.username, ctx.app.slug, slug),
     };
-    let preview_src = format!(
-        "/apps/{}/pages/{}/preview",
+    let canvas_url = format!(
+        "/apps/{}/pages/{}/canvas",
         ctx.app.slug, edit_segment
     );
+    // Initial canvas content — rendered inline so first paint matches
+    // the live preview without an extra round trip. Falls back to
+    // empty markup if the tree is malformed.
+    let initial_canvas: Markup = if ctx.elements.is_empty() {
+        html! {}
+    } else {
+        Tree::from_db_rows(ctx.elements)
+            .map(|t| t.render())
+            .unwrap_or_else(|_| html! {})
+    };
     let body = html! {
         div .builder-grid {
             (topbar(&ctx, &public_path, &edit_segment))
@@ -115,7 +132,12 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
                     hx-push-url=(format!("/apps/{}/pages/{}/edit?sel=page",
                         ctx.app.slug, edit_segment))
                     title="Click to edit page settings" {}
-                iframe #preview src=(preview_src) {}
+                div #preview-canvas .preview-canvas
+                    hx-get=(canvas_url)
+                    hx-trigger="preview-stale from:body"
+                    hx-swap="innerHTML" {
+                    (initial_canvas)
+                }
             }
             aside #inspector .builder-inspector
                 hx-trigger="preview-stale from:body"
@@ -174,11 +196,14 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
 }
 
 pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
-    let root_id = ctx.page.root_element.unwrap_or_default();
     let edit_segment = page_segment(&ctx.page.slug);
     let page_selected = matches!(ctx.selection, Selection::Page);
+    let elements_url = format!(
+        "/apps/{}/pages/{}/elements",
+        ctx.app.slug, edit_segment
+    );
     html! {
-        ul .tree-list .tree-root data-parent-id=(root_id) {
+        ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
             li .tree-page-row
                 aria-current=[if page_selected { Some("true") } else { None }] {
                 button .tree-row-button
@@ -200,7 +225,18 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
                     }
                 }
             }
-            (tree_node(ctx, root_id, current_selection(ctx), &edit_segment, true))
+            @if let Some(root_id) = ctx.page.root_element {
+                (tree_node(ctx, root_id, current_selection(ctx), &edit_segment, true))
+            } @else {
+                li .tree-empty {
+                    p .muted { "No root element yet." }
+                    form hx-post=(elements_url) hx-swap="none" .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        input type="hidden" name="tag" value="div";
+                        button type="submit" { "Add root <div>" }
+                    }
+                }
+            }
         }
     }
 }
@@ -455,38 +491,49 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
                 (labeled_checkbox("unlisted", "Unlisted (404 unless owner)", ctx.page.unlisted))
             }
         }
-        @if let Some(root_id) = ctx.page.root_element {
-            (page_add_element_section(ctx, root_id))
+        @match ctx.page.root_element {
+            Some(root_id) => (page_add_element_section(ctx, Some(root_id))),
+            None => (page_add_element_section(ctx, None)),
         }
     }
 }
 
-/// "Add element" buttons rendered when the page itself is selected —
-/// they create children of the page's root element so the user can
-/// keep adding top-level content without having to click into the
-/// root in the tree.
-fn page_add_element_section(ctx: &BuilderCtx<'_>, root_id: Uuid) -> Markup {
+/// "Add element" buttons rendered when the page itself is selected.
+/// When the page has a root, the buttons add children to it. When the
+/// page has no root yet (post-deletion or fresh-after-clear), the
+/// buttons create the root instead — the server upgrades a parent-less
+/// insert into a root install + page.root_element update.
+fn page_add_element_section(ctx: &BuilderCtx<'_>, root_id: Option<Uuid>) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let elements_url = format!(
         "/apps/{}/pages/{}/elements",
         ctx.app.slug, edit_segment
     );
+    let has_root = root_id.is_some();
     html! {
         div .inspector-add {
-            h3 { "Add element" }
+            h3 { @if has_root { "Add element" } @else { "Add root element" } }
             div .inspector-add-buttons {
                 form hx-post=(elements_url) hx-swap="none" .inline-form {
                     input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                    input type="hidden" name="parent_id" value=(root_id);
+                    @if let Some(rid) = root_id {
+                        input type="hidden" name="parent_id" value=(rid);
+                    }
                     input type="hidden" name="tag" value="div";
-                    button type="submit" { "Add child" }
-                }
-                form hx-post=(elements_url) hx-swap="none" .inline-form {
-                    input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                    input type="hidden" name="parent_id" value=(root_id);
-                    input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
                     button type="submit" {
-                        span .tree-text-glyph { "T" } " Add text child"
+                        @if has_root { "Add child" } @else { "Add root <div>" }
+                    }
+                }
+                @if has_root {
+                    form hx-post=(elements_url) hx-swap="none" .inline-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        @if let Some(rid) = root_id {
+                            input type="hidden" name="parent_id" value=(rid);
+                        }
+                        input type="hidden" name="tag" value=(ElementTag::TEXT_NAME);
+                        button type="submit" {
+                            span .tree-text-glyph { "T" } " Add text child"
+                        }
                     }
                 }
             }

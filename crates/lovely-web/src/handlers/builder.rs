@@ -64,6 +64,35 @@ pub async fn get_tree_fragment(
     Ok((jar, Html(frag.into_string())).into_response())
 }
 
+/// Returns the rendered HTML of the page's element tree as a fragment
+/// for inline preview (no <html>/<body> wrapper). Used in place of the
+/// old preview iframe — htmx swaps this into `#preview-canvas` on
+/// every `preview-stale` event.
+pub async fn get_canvas_fragment(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((app_slug, page_slug)): Path<(String, String)>,
+) -> Result<Response, WebError> {
+    use lovely_tree::Tree;
+    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let real_slug = super::pages::decode_slug_segment(&page_slug);
+    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
+        .await?
+        .ok_or(WebError::NotFound)?;
+    let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
+    if rows.is_empty() {
+        // Page has no root yet — render an empty placeholder so the
+        // canvas still has dimensions and the click-to-select page
+        // backdrop continues to work.
+        return Ok(Html(String::new()).into_response());
+    }
+    let tree = Tree::from_db_rows(&rows)?;
+    let html = tree.render().into_string();
+    Ok(Html(html).into_response())
+}
+
 pub async fn get_inspector_fragment(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,

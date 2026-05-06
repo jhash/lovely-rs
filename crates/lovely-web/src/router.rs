@@ -19,6 +19,10 @@ pub fn router(state: AppState) -> Router {
             "/auth/register",
             post(handlers::auth_username::post_register),
         )
+        .route(
+            "/auth/check-username",
+            get(handlers::auth_username::get_check_username),
+        )
         .route("/auth/logout", post(handlers::auth_username::post_logout))
         // --- apps + editor ---
         .route("/apps", get(handlers::apps::get_apps_index))
@@ -102,8 +106,8 @@ pub fn router(state: AppState) -> Router {
             get(handlers::pages::get_page_edit),
         )
         .route(
-            "/apps/{app_slug}/pages/{page_slug}/preview",
-            get(handlers::pages::get_page_preview),
+            "/apps/{app_slug}/pages/{page_slug}/canvas",
+            get(handlers::builder::get_canvas_fragment),
         )
         .route(
             "/apps/{app_slug}/pages/{page_slug}/head",
@@ -185,6 +189,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/{username}/{slug}",
             get(handlers::pages::get_public_user_page),
+        )
+        .route(
+            "/{username}/{app_slug}/{page_slug}",
+            get(handlers::pages::get_public_user_app_page),
         )
         .nest_service("/static", static_svc)
         .layer(TraceLayer::new_for_http())

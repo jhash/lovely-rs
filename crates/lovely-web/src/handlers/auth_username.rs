@@ -93,6 +93,60 @@ pub async fn post_login(
     Ok((jar, axum::response::Redirect::to("/pages")).into_response())
 }
 
+#[derive(serde::Deserialize, Default)]
+pub struct CheckUsernameQuery {
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
+/// Live-validation for the registration form's username field. Mirrors
+/// `/apps/check-slug` semantics: returns a `.slug-feedback`-flavored
+/// fragment (`.slug-error` / `.slug-ok`) so the existing JS can flip
+/// the input's aria-invalid + disable the submit button.
+pub async fn get_check_username(
+    State(state): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<CheckUsernameQuery>,
+) -> Result<Response, WebError> {
+    let raw = q.username.unwrap_or_default();
+    let trimmed = raw.trim();
+    // Same shape rules as the registration form (3..=40 alphanumeric + underscore).
+    if trimmed.len() < 3 {
+        return Ok(axum::response::Html("").into_response());
+    }
+    if trimmed.len() > 40
+        || !trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Ok(axum::response::Html(
+            r#"<span class="slug-error">Use 3–40 letters, digits, dashes, or underscores.</span>"#,
+        )
+        .into_response());
+    }
+    let taken = lovely_db::find_user_by_username(&state.pg, trimmed)
+        .await?
+        .is_some();
+    let body = if taken {
+        format!(
+            r#"<span class="slug-error">"{}" is already taken.</span>"#,
+            html_escape(trimmed)
+        )
+    } else {
+        format!(
+            r#"<span class="slug-ok">"{}" is available.</span>"#,
+            html_escape(trimmed)
+        )
+    };
+    Ok(axum::response::Html(body).into_response())
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 pub async fn get_register(
     State(state): State<AppState>,
     MaybeUser(maybe_user): MaybeUser,

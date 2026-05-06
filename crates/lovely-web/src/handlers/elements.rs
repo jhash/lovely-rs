@@ -70,39 +70,49 @@ pub async fn post_add_element(
     if ElementTag::from_name(&form.tag).is_none() {
         return Err(WebError::BadRequest(format!("unknown tag: {}", form.tag)));
     }
-    let parent_id = form.parent_id.or(page.root_element);
-    let parent_id = parent_id.ok_or(WebError::BadRequest("page has no root element".into()))?;
-    // Refuse if parent is a leaf element (input/textarea/img/br/hr/...).
-    let parent_tag: Option<(String,)> =
-        sqlx::query_as("SELECT tag FROM elements WHERE id = $1 AND page_id = $2")
-            .bind(parent_id)
-            .bind(page.id)
-            .fetch_optional(&state.pg)
-            .await
-            .map_err(lovely_db::DbError::Sqlx)?;
-    if let Some((tag,)) = parent_tag.as_ref() {
-        if let Some(t) = ElementTag::from_name(tag) {
-            if t.is_leaf() {
-                return Err(WebError::Unprocessable(format!(
-                    "<{}> elements cannot have children",
-                    tag
-                )));
+    // Resolve the parent. When the page has no root yet, treat this
+    // call as "create the root" — insert with parent_id=NULL and patch
+    // the page's root_element pointer.
+    let parent_id_opt = form.parent_id.or(page.root_element);
+    if let Some(parent_id) = parent_id_opt {
+        // Refuse if parent is a leaf element (input/textarea/img/br/hr/...).
+        let parent_tag: Option<(String,)> =
+            sqlx::query_as("SELECT tag FROM elements WHERE id = $1 AND page_id = $2")
+                .bind(parent_id)
+                .bind(page.id)
+                .fetch_optional(&state.pg)
+                .await
+                .map_err(lovely_db::DbError::Sqlx)?;
+        if let Some((tag,)) = parent_tag.as_ref() {
+            if let Some(t) = ElementTag::from_name(tag) {
+                if t.is_leaf() {
+                    return Err(WebError::Unprocessable(format!(
+                        "<{}> elements cannot have children",
+                        tag
+                    )));
+                }
             }
         }
     }
+    let parent_id = parent_id_opt;
     // Find the current last child of parent_id to set prev_sibling.
-    let prev_sibling: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM elements \
-         WHERE page_id = $1 AND parent_id = $2 \
-         AND NOT EXISTS (SELECT 1 FROM elements e2 \
-                         WHERE e2.page_id = $1 AND e2.parent_id = $2 \
-                         AND e2.prev_sibling = elements.id)",
-    )
-    .bind(page.id)
-    .bind(parent_id)
-    .fetch_optional(&state.pg)
-    .await
-    .map_err(lovely_db::DbError::Sqlx)?;
+    // (No siblings to chain when we're inserting the new root.)
+    let prev_sibling: Option<(Uuid,)> = if let Some(parent) = parent_id {
+        sqlx::query_as(
+            "SELECT id FROM elements \
+             WHERE page_id = $1 AND parent_id = $2 \
+             AND NOT EXISTS (SELECT 1 FROM elements e2 \
+                             WHERE e2.page_id = $1 AND e2.parent_id = $2 \
+                             AND e2.prev_sibling = elements.id)",
+        )
+        .bind(page.id)
+        .bind(parent)
+        .fetch_optional(&state.pg)
+        .await
+        .map_err(lovely_db::DbError::Sqlx)?
+    } else {
+        None
+    };
     // Only `#text` nodes carry text content. Regular elements get an
     // empty payload — text is added later by attaching a `#text` child.
     let payload = if lovely_tree::is_text_tag(&form.tag) {
@@ -115,7 +125,7 @@ pub async fn post_add_element(
         &state.pg,
         lovely_db::InsertElement {
             page_id: page.id,
-            parent_id: Some(parent_id),
+            parent_id,
             prev_sibling: prev_sibling.map(|t| t.0),
             tag: form.tag,
             attrs: serde_json::Value::Object(Default::default()),
@@ -123,6 +133,16 @@ pub async fn post_add_element(
         },
     )
     .await?;
+    // If this insertion was the first root for the page, update the
+    // page's root_element pointer.
+    if parent_id.is_none() {
+        sqlx::query("UPDATE pages SET root_element = $1, updated_at = now() WHERE id = $2")
+            .bind(new_row.id)
+            .bind(page.id)
+            .execute(&state.pg)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
+    }
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
         let focus = if is_text { "text" } else { "" };

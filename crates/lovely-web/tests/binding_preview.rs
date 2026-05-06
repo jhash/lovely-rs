@@ -101,7 +101,7 @@ async fn binding_does_not_500_the_preview() {
     // GET the preview iframe (canvas) — must not 500.
     let r = app
         .client
-        .get(format!("{}/apps/personal/pages/p1/preview", app.url))
+        .get(format!("{}/apps/personal/pages/p1/canvas", app.url))
         .send()
         .await
         .unwrap();

@@ -338,32 +338,6 @@ pub async fn post_page_unlock(
         .into_response())
 }
 
-pub async fn get_page_preview(
-    State(state): State<AppState>,
-    AuthUser(user): AuthUser,
-    Path((app_slug, page_slug)): Path<(String, String)>,
-) -> Result<Response, WebError> {
-    let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
-        .await?
-        .ok_or(WebError::NotFound)?;
-    let real_slug = decode_slug_segment(&page_slug);
-    let page = find_page_by_app_and_slug(&state.pg, app.id, &real_slug)
-        .await?
-        .ok_or(WebError::NotFound)?;
-    let rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
-    let tree = Tree::from_db_rows(&rows)?;
-    let rendered = tree.render();
-    // Minimal owner-only render. No editor chrome, draft visible. The
-    // user's CSS lives inside the iframe, so it can't fight ours.
-    let html = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title>\
-         <link rel=\"stylesheet\" href=\"/static/style.css\"></head><body class=\"public\">{}</body></html>",
-        html_escape(&page.title),
-        rendered.into_string()
-    );
-    Ok(axum::response::Html(html).into_response())
-}
-
 /// For each element carrying `data-lovely-repeat=<collection>`, take
 /// its first child as a template and duplicate it once per record.
 /// `{{field}}` in the template's text gets replaced with the field
@@ -674,20 +648,13 @@ fn sanitize_head_html(s: &str) -> String {
     out
 }
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 pub async fn get_public_user_root(
     State(state): State<AppState>,
     MaybeUser(viewer): MaybeUser,
     Path(username): Path<String>,
     jar: CookieJar,
 ) -> Result<Response, WebError> {
-    render_public(&state, viewer, &username, "", jar).await
+    render_public(&state, viewer, &username, None, "", jar).await
 }
 
 pub async fn get_public_user_page(
@@ -697,18 +664,60 @@ pub async fn get_public_user_page(
     jar: CookieJar,
 ) -> Result<Response, WebError> {
     let real_slug = decode_slug_segment(&slug);
-    render_public(&state, viewer, &username, &real_slug, jar).await
+    render_public(&state, viewer, &username, None, &real_slug, jar).await
+}
+
+/// `/{username}/{app_slug}/{page_slug}` — public render scoped to a
+/// specific (non-default) app of the user. The default app keeps the
+/// shorter `/{username}/{page_slug}` shape.
+pub async fn get_public_user_app_page(
+    State(state): State<AppState>,
+    MaybeUser(viewer): MaybeUser,
+    Path((username, app_slug, page_slug)): Path<(String, String, String)>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    let real_slug = decode_slug_segment(&page_slug);
+    render_public(&state, viewer, &username, Some(&app_slug), &real_slug, jar).await
+}
+
+/// `/{username}/{app_slug}` — public render of the named app's home
+/// page (slug = "").
+pub async fn get_public_user_app_root(
+    State(state): State<AppState>,
+    MaybeUser(viewer): MaybeUser,
+    Path((username, app_slug)): Path<(String, String)>,
+    jar: CookieJar,
+) -> Result<Response, WebError> {
+    render_public(&state, viewer, &username, Some(&app_slug), "", jar).await
 }
 
 async fn render_public(
     state: &AppState,
     viewer: Option<lovely_db::User>,
     username: &str,
+    app_slug: Option<&str>,
     slug: &str,
     jar: CookieJar,
 ) -> Result<Response, WebError> {
-    let Some((owner, app)) = find_default_app_for_username(&state.pg, username).await? else {
-        return Err(WebError::NotFound);
+    let (owner, app) = match app_slug {
+        Some(name) => {
+            let Some(owner) = lovely_db::find_user_by_username(&state.pg, username).await?
+            else {
+                return Err(WebError::NotFound);
+            };
+            let Some(app) =
+                lovely_db::find_app_by_owner_and_slug(&state.pg, owner.id, name).await?
+            else {
+                return Err(WebError::NotFound);
+            };
+            (owner, app)
+        }
+        None => {
+            let Some(pair) = find_default_app_for_username(&state.pg, username).await? else {
+                return Err(WebError::NotFound);
+            };
+            pair
+        }
     };
     let is_owner = viewer.as_ref().map(|v| v.id == owner.id).unwrap_or(false);
     let page_opt = find_page_by_app_and_slug(&state.pg, app.id, slug).await?;

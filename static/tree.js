@@ -65,15 +65,9 @@
   });
 
   // ---- Builder live preview ----
-  // PATCH/MOVE responses include `HX-Trigger: preview-stale`. htmx
-  // dispatches that as a plain event; we listen and reload the iframe
-  // so the user sees their change without a full editor reload.
-  document.addEventListener("preview-stale", function () {
-    var ifr = document.getElementById("preview");
-    if (ifr && ifr.contentWindow) {
-      ifr.contentWindow.location.reload();
-    }
-  });
+  // The `#preview-canvas` div has its own `hx-trigger="preview-stale
+  // from:body"` so it re-fetches when mutations land. No JS handler
+  // needed here anymore — the iframe is gone.
 
   // ---- Builder tree drag & drop (Sortable.js) ----
   function moveUrl(elementId) {
@@ -261,10 +255,9 @@
         swap: "innerHTML",
       });
     }
-    // Refresh the live preview iframe (server emits no preview-stale
-    // for selection events, so do it ourselves).
-    var ifr = document.getElementById("preview");
-    if (ifr && ifr.contentWindow) ifr.contentWindow.location.reload();
+    // The canvas div listens for `preview-stale` to re-fetch, so let
+    // it know — selection events also imply the structure changed.
+    document.dispatchEvent(new CustomEvent("preview-stale"));
 
     if (focus === "text") {
       // Wait for the inspector to swap in before focusing.

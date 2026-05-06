@@ -626,16 +626,23 @@ body.builder .builder-canvas {
   min-height: 0;
   padding: var(--space-4);
 }
-body.builder .builder-canvas iframe {
+body.builder .builder-canvas .preview-canvas {
   flex: 1 1 auto;
+  align-self: stretch;
   width: 100%;
-  height: 100%;
-  border: 0;
   background: var(--paper);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
   border-radius: var(--radius-1);
   position: relative;
   z-index: 1;
+  overflow: auto;
+  /* Match the published page's flex defaults so the user's root
+     element stretches to fill the canvas. */
+  display: flex;
+  flex-direction: column;
+}
+body.builder .builder-canvas .preview-canvas > :first-child {
+  flex: 1 1 auto;
 }
 /* Full-canvas click target — clicking the gray padding around the
    iframe selects the page in the inspector. Sits behind the iframe so

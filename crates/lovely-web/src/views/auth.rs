@@ -42,7 +42,13 @@ pub fn register_page(csrf_token: &str, error: Option<&str>) -> Markup {
             input type="hidden" name="_csrf" value=(csrf_token);
             label {
                 "Username"
-                input type="text" name="username" required minlength="3" maxlength="40";
+                input type="text" name="username" required minlength="3" maxlength="40"
+                      data-slug-input
+                      hx-get="/auth/check-username"
+                      hx-trigger="input changed delay:300ms"
+                      hx-target="next .slug-feedback"
+                      hx-swap="innerHTML";
+                span .slug-feedback aria-live="polite" {}
             }
             label {
                 "Email (optional)"
