@@ -67,7 +67,7 @@
   // ---- Builder live preview ----
   // The `#preview-canvas` div has its own `hx-trigger="preview-stale
   // from:body"` so it re-fetches when mutations land. No JS handler
-  // needed here anymore — the iframe is gone.
+  // needed here — the preview is rendered inline by the server.
 
   // ---- Builder tree drag & drop (Sortable.js) ----
   function moveUrl(elementId) {
@@ -192,6 +192,18 @@
     }
   });
 
+  // Forward Enter/Space on role=button elements to a click so htmx
+  // hx-get/hx-post bindings on plain <div> wrappers stay keyboard-
+  // accessible without forcing real <button> tags.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute("role") !== "button") return;
+    e.preventDefault();
+    t.click();
+  });
+
   // Cmd-Z / Cmd-Shift-Z on the editor page → POST /undo or /redo
   document.addEventListener("keydown", function (e) {
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
@@ -255,9 +267,13 @@
         swap: "innerHTML",
       });
     }
-    // The canvas div listens for `preview-stale` to re-fetch, so let
-    // it know — selection events also imply the structure changed.
-    document.dispatchEvent(new CustomEvent("preview-stale"));
+    // The canvas div listens for `preview-stale` on body to re-fetch.
+    // Selection events also imply the canvas should refresh (root
+    // selection in particular rewires structure).
+    var canvas = document.getElementById("preview-canvas");
+    if (canvas && window.htmx) {
+      window.htmx.trigger(canvas, "preview-stale");
+    }
 
     if (focus === "text") {
       // Wait for the inspector to swap in before focusing.

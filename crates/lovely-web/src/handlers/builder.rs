@@ -72,6 +72,7 @@ pub async fn get_canvas_fragment(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path((app_slug, page_slug)): Path<(String, String)>,
+    jar: CookieJar,
 ) -> Result<Response, WebError> {
     use lovely_tree::Tree;
     let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
@@ -93,6 +94,8 @@ pub async fn get_canvas_fragment(
     super::pages::expand_repeaters(&state.pg, app.id, &mut rows).await?;
     super::pages::resolve_bindings(&state.pg, app.id, &mut rows).await?;
     super::pages::interpolate_collection_refs(&state.pg, app.id, &mut rows).await?;
+    let (_jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    super::pages::auto_wire_forms(&mut rows, &user.username, &page.slug, &token);
     let tree = Tree::from_db_rows(&rows)?;
     let html = tree.render().into_string();
     Ok(Html(html).into_response())

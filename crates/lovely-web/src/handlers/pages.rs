@@ -491,6 +491,120 @@ fn collect_subtree(
         .collect()
 }
 
+/// Auto-wire forms whose descendants carry `data-lovely-source`. Walks
+/// the tree, groups source descendants by their nearest <form> parent,
+/// and rewrites the form's `action`/`method` to the public submit
+/// endpoint. Each source descendant's `name` attr is mapped to the
+/// field name so the browser submits with the right keys. Also injects
+/// a synthetic `<input type="hidden" name="_csrf">` child carrying the
+/// active CSRF token so the public submit endpoint accepts the post.
+/// Idempotent: it overwrites existing action/method only when sources
+/// are present.
+pub(crate) fn auto_wire_forms(
+    rows: &mut Vec<lovely_tree::ElementRow>,
+    username: &str,
+    page_slug: &str,
+    csrf_token: &str,
+) {
+    use lovely_tree::ElementUuid;
+    use std::collections::HashMap;
+    // Build child→parent map for ancestor walks.
+    let parent_of: HashMap<uuid::Uuid, uuid::Uuid> = rows
+        .iter()
+        .filter_map(|r| r.parent_id.map(|p| (r.id.into_inner(), p.into_inner())))
+        .collect();
+    let id_to_idx: HashMap<uuid::Uuid, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.id.into_inner(), i))
+        .collect();
+    // Walk: for every row carrying data-lovely-source, find its
+    // nearest <form> ancestor (or none).
+    let mut form_to_source_collection: HashMap<uuid::Uuid, String> = HashMap::new();
+    let mut row_field_for_source: Vec<(usize, String)> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        let Some(source) = row
+            .attrs_json
+            .get("data-lovely-source")
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        let (coll, field) = match source.split_once('.') {
+            Some((c, f)) if !f.is_empty() => (c.to_string(), f.to_string()),
+            _ => continue,
+        };
+        // Walk up to find the form ancestor.
+        let mut cur = row.parent_id.map(|p| p.into_inner());
+        let mut form_id: Option<uuid::Uuid> = None;
+        while let Some(c) = cur {
+            if let Some(&idx) = id_to_idx.get(&c) {
+                if rows[idx].tag == "form" {
+                    form_id = Some(c);
+                    break;
+                }
+            }
+            cur = parent_of.get(&c).copied();
+        }
+        if let Some(fid) = form_id {
+            form_to_source_collection.insert(fid, coll);
+            row_field_for_source.push((i, field));
+        }
+    }
+    // Rewrite each source row's `name` attribute.
+    for (i, field) in row_field_for_source {
+        let attrs = match &mut rows[i].attrs_json {
+            serde_json::Value::Object(m) => m,
+            _ => continue,
+        };
+        attrs.insert("name".into(), serde_json::Value::String(field));
+    }
+    // Rewrite each form's action + method, and append a CSRF hidden
+    // input as a child of each wired form.
+    let segment = if page_slug.is_empty() { "~home" } else { page_slug };
+    let mut csrf_inputs: Vec<lovely_tree::ElementRow> = Vec::new();
+    for (form_id, coll) in form_to_source_collection {
+        if let Some(&idx) = id_to_idx.get(&form_id) {
+            let action = format!("/p/{username}/{segment}/_submit/{coll}");
+            let attrs = match &mut rows[idx].attrs_json {
+                serde_json::Value::Object(m) => m,
+                _ => continue,
+            };
+            attrs.insert("action".into(), serde_json::Value::String(action));
+            attrs.insert("method".into(), serde_json::Value::String("post".into()));
+            // Synthetic CSRF hidden input — sits as the LAST child of
+            // the form via prev_sibling = current tail (or None if
+            // the form has no children yet).
+            let new_id = ElementUuid::new_v4();
+            let attrs_json = serde_json::json!({
+                "type": "hidden",
+                "name": "_csrf",
+                "value": csrf_token,
+            });
+            // Find the form's current tail child (no successor pointing at it).
+            let tail = rows
+                .iter()
+                .filter(|r| r.parent_id.map(|p| p.into_inner()) == Some(form_id))
+                .find(|r| {
+                    !rows.iter().any(|other| {
+                        other.prev_sibling.map(|p| p.into_inner())
+                            == Some(r.id.into_inner())
+                    })
+                })
+                .map(|r| r.id);
+            csrf_inputs.push(lovely_tree::ElementRow {
+                id: new_id,
+                parent_id: Some(ElementUuid(form_id)),
+                prev_sibling: tail,
+                tag: "input".into(),
+                attrs_json,
+                text: None,
+            });
+        }
+    }
+    rows.extend(csrf_inputs);
+}
+
 /// Cross-collection interpolation: replaces `{{coll.field}}` tokens
 /// in every row's text + attribute values with the first record's
 /// value from the named collection. Distinct from
@@ -884,9 +998,10 @@ async fn render_public(
     expand_repeaters(&state.pg, app.id, &mut rows).await?;
     resolve_bindings(&state.pg, app.id, &mut rows).await?;
     interpolate_collection_refs(&state.pg, app.id, &mut rows).await?;
+    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
+    auto_wire_forms(&mut rows, username, slug, &token);
     let tree = Tree::from_db_rows(&rows)?;
     let rendered = tree.render();
-    let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     let html = pages_views::published_page(
         viewer.as_ref(),
         owner.id,

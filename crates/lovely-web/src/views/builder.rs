@@ -1,8 +1,8 @@
 //! Full-screen 3-pane page builder layout.
 //!
 //! Body class `builder` opts the shell out of the centered `<main>` rule.
-//! The grid is: top bar above three columns — tree, preview iframe,
-//! inspector. Stacks under 64rem.
+//! The grid is: top bar above three columns — tree, inline preview
+//! canvas, inspector. Stacks under 64rem.
 
 use crate::views::{builder_shell, labeled_checkbox, ShellCtx};
 use lovely_db::{App, Collection, Page, User};
@@ -123,8 +123,9 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
                 (tree_fragment(&ctx))
             }
             main .builder-canvas {
-                button .canvas-backdrop
-                    type="button"
+                div .canvas-backdrop
+                    role="button"
+                    tabindex="0"
                     hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
                         ctx.app.slug, edit_segment))
                     hx-target="#inspector"
@@ -206,8 +207,9 @@ pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
         ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
             li .tree-page-row
                 aria-current=[if page_selected { Some("true") } else { None }] {
-                button .tree-row-button
-                    type="button"
+                div .tree-row-button
+                    role="button"
+                    tabindex="0"
                     data-sel-id="page"
                     hx-get=(format!("/apps/{}/pages/{}/inspector?sel=page",
                         ctx.app.slug, edit_segment))
@@ -278,8 +280,9 @@ fn tree_node(
             data-element-id=(id)
             aria-current=[if is_selected { Some("true") } else { None }] {
             div .tree-row {
-                button .tree-row-button
-                    type="button"
+                div .tree-row-button
+                    role="button"
+                    tabindex="0"
                     data-sel-id=(id)
                     hx-get=(format!("/apps/{}/pages/{}/inspector?sel={}",
                         ctx.app.slug, edit_segment, id))
