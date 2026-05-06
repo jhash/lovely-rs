@@ -149,4 +149,40 @@ async fn form_with_source_descendant_auto_wires_action_and_csrf() {
         body.contains(r#"name="_csrf""#),
         "auto-wired form must include a _csrf hidden input: {body}"
     );
+
+    // End-to-end: extract the action + csrf from the rendered form,
+    // submit it, and verify a comments row lands in the DB.
+    let action_idx = body.find(r#"action=""#).expect("action attr");
+    let after_action = &body[action_idx + r#"action=""#.len()..];
+    let action = &after_action[..after_action.find('"').unwrap()];
+    let csrf_idx = body
+        .find(r#"name="_csrf""#)
+        .expect("csrf hidden input present");
+    let after_csrf = &body[csrf_idx..];
+    let v_idx = after_csrf.find(r#"value=""#).expect("value=");
+    let after_val = &after_csrf[v_idx + r#"value=""#.len()..];
+    let csrf_val = &after_val[..after_val.find('"').unwrap()];
+
+    let r = app
+        .client
+        .post(format!("{}{}", app.url, action))
+        .form(&[("body", "auto-wired post"), ("_csrf", csrf_val)])
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "submit: {}",
+        r.status()
+    );
+
+    let body: Option<String> = sqlx::query_scalar(
+        "SELECT data_json->>'body' FROM records r \
+         JOIN collections c ON c.id = r.collection_id \
+         WHERE c.name = 'comments' LIMIT 1",
+    )
+    .fetch_optional(&app.pg)
+    .await
+    .unwrap();
+    assert_eq!(body.as_deref(), Some("auto-wired post"));
 }
