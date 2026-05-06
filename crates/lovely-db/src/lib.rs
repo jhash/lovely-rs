@@ -7,6 +7,7 @@ pub mod oauth;
 pub mod pages;
 pub mod pg;
 pub mod revisions;
+pub mod schema_service;
 pub mod sessions;
 pub mod sqlite_store;
 pub mod users;
@@ -34,6 +35,7 @@ pub use pages::{
 };
 pub use pg::{connect, run_migrations, PgConfig, MIGRATOR};
 pub use revisions::{snapshot_page, step as revision_step, Direction as RevisionDirection};
+pub use schema_service::{MigrationVersion, SchemaService};
 pub use sessions::{
     create_session, delete_all_sessions_for_user, delete_session, find_session,
     purge_expired_sessions, NewSession, Session,
