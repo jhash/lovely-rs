@@ -1,6 +1,6 @@
 //! Test fixtures shared across the workspace. Path-only, never published.
 
-use lovely_db::StubSqliteAppStore;
+use lovely_db::{LocalSqliteAppStore, SchemaService};
 use lovely_web::AppState;
 use secrecy::SecretString;
 use sqlx::PgPool;
@@ -70,13 +70,18 @@ impl TestApp {
             .parent()
             .unwrap()
             .join("static");
-        let app_store: Arc<dyn lovely_db::SqliteAppStore> = Arc::new(StubSqliteAppStore);
+        let schema = Arc::new(SchemaService::new(pg.clone()));
+        let app_store: Arc<dyn lovely_db::SqliteAppStore> = Arc::new(LocalSqliteAppStore::new(
+            data_dir.path(),
+            schema.clone(),
+        )?);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let url = format!("http://127.0.0.1:{}", addr.port());
         let state = AppState::new(
             pg.clone(),
             app_store,
+            schema,
             url.clone(),
             SecretString::from("test-secret-not-for-prod".to_string()),
             static_dir,

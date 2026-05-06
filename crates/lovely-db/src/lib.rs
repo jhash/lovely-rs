@@ -40,7 +40,7 @@ pub use sessions::{
     create_session, delete_all_sessions_for_user, delete_session, find_session,
     purge_expired_sessions, NewSession, Session,
 };
-pub use sqlite_store::{AppId, SqliteAppStore, StubSqliteAppStore};
+pub use sqlite_store::{AppId, LocalSqliteAppStore, SqliteAppStore, StubSqliteAppStore};
 pub use users::{
     create_user, find_user_by_id, find_user_by_username, set_user_public_published, NewUser, User,
     UserRole,

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use lovely_db::{PgConfig, StubSqliteAppStore};
+use lovely_db::{LocalSqliteAppStore, PgConfig, SchemaService};
 use lovely_web::AppState;
 use secrecy::SecretString;
 use std::path::PathBuf;
@@ -93,10 +93,15 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("run postgres migrations")?;
 
-    let app_store = Arc::new(StubSqliteAppStore);
+    let schema = Arc::new(SchemaService::new(pg.clone()));
+    let app_store: Arc<dyn lovely_db::SqliteAppStore> = Arc::new(
+        LocalSqliteAppStore::new(&args.sqlite_data_dir, schema.clone())
+            .context("init sqlite app store")?,
+    );
     let state = AppState::new(
         pg,
         app_store,
+        schema,
         args.base_url.clone(),
         args.session_secret.clone(),
         args.static_dir.clone(),
