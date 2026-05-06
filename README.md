@@ -2,7 +2,11 @@
 
 A dynamic site builder in Rust. Server-rendered HTML with htmx, no SPA. Postgres for system data, SQLite-per-app for dynamic user data.
 
-This is a teaching project — see `docs/rust-notes.md` for a running glossary of Rust concepts as they appear in the codebase, and `docs/plans/2026-05-05-lovely-rs-design.md` for the full design.
+This is a teaching project. To get oriented:
+
+- **`docs/codebase-tour.md`** — guided walk through every crate, a request lifecycle worked example, and a reading order for newcomers.
+- **`docs/rust-notes.md`** — running glossary of Rust concepts as they appear in the codebase.
+- **`docs/plans/2026-05-05-lovely-rs-design.md`** — the full design.
 
 ## Status
 
