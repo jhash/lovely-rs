@@ -20,8 +20,8 @@ pub async fn get_apps_index(
 ) -> Result<Response, WebError> {
     let apps = list_apps_by_owner(&state.pg, user.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::apps_index(&user, &apps, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = apps_views::apps_index(&user, &apps, &token);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn get_app_dashboard(
@@ -36,8 +36,8 @@ pub async fn get_app_dashboard(
     let pages = list_pages_in_app(&state.pg, app.id).await?;
     let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::app_dashboard(&user, &app, &pages, &collections, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = apps_views::app_dashboard(&user, &app, &pages, &collections, &token);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn get_app_pages(
@@ -51,8 +51,8 @@ pub async fn get_app_pages(
         .ok_or(WebError::NotFound)?;
     let pages = list_pages_in_app(&state.pg, app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::app_pages_index(&user, &app, &pages, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = apps_views::app_pages_index(&user, &app, &pages, &token);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn get_app_settings(
@@ -65,8 +65,8 @@ pub async fn get_app_settings(
         .await?
         .ok_or(WebError::NotFound)?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::app_settings(&user, &app, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = apps_views::app_settings(&user, &app, &token);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn get_apps_new(
@@ -75,8 +75,8 @@ pub async fn get_apps_new(
     jar: CookieJar,
 ) -> Result<Response, WebError> {
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = apps_views::apps_new(&user, &token, None).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = apps_views::apps_new(&user, &token, None);
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -101,28 +101,17 @@ pub async fn post_apps_create(
     csrf::verify_token(cookie_token.as_deref().unwrap_or(""), form._csrf.as_deref())?;
     if !is_valid_app_slug(&form.slug) {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html = apps_views::apps_new(
+        let markup = apps_views::apps_new(
             &user,
             &token,
             Some("Slug must be 1–40 chars: a-z, 0-9, hyphen"),
-        )
-        .into_string();
-        return Ok((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            jar,
-            axum::response::Html(html),
-        )
-            .into_response());
+        );
+        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response());
     }
     if form.name.trim().is_empty() {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html = apps_views::apps_new(&user, &token, Some("Name is required")).into_string();
-        return Ok((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            jar,
-            axum::response::Html(html),
-        )
-            .into_response());
+        let markup = apps_views::apps_new(&user, &token, Some("Name is required"));
+        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response());
     }
     match create_app(
         &state.pg,
@@ -139,14 +128,8 @@ pub async fn post_apps_create(
         Ok(app) => Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response()),
         Err(lovely_db::DbError::Conflict(_)) => {
             let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-            let html = apps_views::apps_new(&user, &token, Some("That slug is already used"))
-                .into_string();
-            Ok((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                jar,
-                axum::response::Html(html),
-            )
-                .into_response())
+            let markup = apps_views::apps_new(&user, &token, Some("That slug is already used"));
+            Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response())
         }
         Err(e) => Err(e.into()),
     }

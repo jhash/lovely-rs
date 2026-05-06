@@ -40,8 +40,8 @@ pub async fn get_login(
         return axum::response::Redirect::to("/apps").into_response();
     }
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = auth_views::login_page(&token, None).into_string();
-    (jar, axum::response::Html(html)).into_response()
+    let markup = auth_views::login_page(&token, None);
+    (jar, markup).into_response()
 }
 
 pub async fn post_login(
@@ -55,21 +55,18 @@ pub async fn post_login(
     let user = find_user_by_username(&state.pg, &form.username).await?;
     let Some(user) = user else {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html =
-            auth_views::login_page(&token, Some("Invalid username or password")).into_string();
-        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+        let markup = auth_views::login_page(&token, Some("Invalid username or password"));
+        return Ok((StatusCode::UNAUTHORIZED, jar, markup).into_response());
     };
     let Some(hash) = user.password_hash.as_deref() else {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html = auth_views::login_page(&token, Some("Use OAuth to sign in to this account"))
-            .into_string();
-        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+        let markup = auth_views::login_page(&token, Some("Use OAuth to sign in to this account"));
+        return Ok((StatusCode::UNAUTHORIZED, jar, markup).into_response());
     };
     if !verify_password(&form.password, hash) {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html =
-            auth_views::login_page(&token, Some("Invalid username or password")).into_string();
-        return Ok((StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response());
+        let markup = auth_views::login_page(&token, Some("Invalid username or password"));
+        return Ok((StatusCode::UNAUTHORIZED, jar, markup).into_response());
     }
 
     // Create session
@@ -156,8 +153,8 @@ pub async fn get_register(
         return axum::response::Redirect::to("/pages").into_response();
     }
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = auth_views::register_page(&token, None).into_string();
-    (jar, axum::response::Html(html)).into_response()
+    let markup = auth_views::register_page(&token, None);
+    (jar, markup).into_response()
 }
 
 pub async fn post_register(
@@ -250,13 +247,8 @@ pub async fn post_register(
 
 fn register_error(state: &AppState, jar: CookieJar, msg: &'static str) -> Response {
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = auth_views::register_page(&token, Some(msg)).into_string();
-    (
-        StatusCode::UNPROCESSABLE_ENTITY,
-        jar,
-        axum::response::Html(html),
-    )
-        .into_response()
+    let markup = auth_views::register_page(&token, Some(msg));
+    (StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response()
 }
 
 #[derive(Deserialize, Default)]

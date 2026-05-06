@@ -26,7 +26,7 @@ pub async fn home(
             }
         }
     };
-    let html = shell(
+    let markup = shell(
         ShellCtx {
             title: "lovely",
             description: Some("A dynamic site builder"),
@@ -34,7 +34,6 @@ pub async fn home(
             csrf_token: &token,
         },
         body,
-    )
-    .into_string();
-    (jar, axum::response::Html(html)).into_response()
+    );
+    (jar, markup).into_response()
 }

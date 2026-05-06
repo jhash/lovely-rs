@@ -61,7 +61,7 @@ pub async fn get_tree_fragment(
         tab,
         csrf_token: &token,
     });
-    Ok((jar, Html(frag.into_string())).into_response())
+    Ok((jar, frag).into_response())
 }
 
 /// Returns the rendered HTML of the page's element tree as a fragment
@@ -84,10 +84,10 @@ pub async fn get_canvas_fragment(
         .ok_or(WebError::NotFound)?;
     let mut rows = lovely_db::load_elements_for_page(&state.pg, page.id).await?;
     if rows.is_empty() {
-        // Page has no root yet — render an empty placeholder so the
-        // canvas still has dimensions and the click-to-select page
-        // backdrop continues to work.
-        return Ok(Html(String::new()).into_response());
+        // Page has no rows yet — render nothing so the canvas still
+        // has dimensions and the click-to-select page backdrop keeps
+        // working. `html! {}` produces an empty Markup.
+        return Ok(maud::html! {}.into_response());
     }
     // Resolve data bindings + expand repeaters so the editor preview
     // matches what an anon viewer would see — keeps WYSIWYG honest.
@@ -97,8 +97,7 @@ pub async fn get_canvas_fragment(
     let (_jar, token) = csrf::ensure_cookie(jar, &state.base_url);
     super::pages::auto_wire_forms(&mut rows, &user.username, &page.slug, &token);
     let tree = Tree::from_db_rows(&rows)?;
-    let html = tree.render().into_string();
-    Ok(Html(html).into_response())
+    Ok(tree.render().into_response())
 }
 
 pub async fn get_inspector_fragment(
@@ -131,7 +130,7 @@ pub async fn get_inspector_fragment(
         tab,
         csrf_token: &token,
     });
-    Ok((jar, Html(frag.into_string())).into_response())
+    Ok((jar, frag).into_response())
 }
 
 #[derive(Deserialize, Default)]

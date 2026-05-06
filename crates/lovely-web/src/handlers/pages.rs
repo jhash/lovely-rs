@@ -33,8 +33,8 @@ pub async fn get_pages_new(
         .await?
         .ok_or(WebError::NotFound)?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = pages_views::pages_new(&user, &app, &token, None).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = pages_views::pages_new(&user, &app, &token, None);
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -62,30 +62,18 @@ pub async fn post_pages_create(
         .ok_or(WebError::NotFound)?;
     if !is_valid_slug(&form.slug) {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html = pages_views::pages_new(
+        let markup = pages_views::pages_new(
             &user,
             &app,
             &token,
             Some("Slug must be empty (home page) or 1–80 chars: a-z, 0-9, hyphen"),
-        )
-        .into_string();
-        return Ok((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            jar,
-            axum::response::Html(html),
-        )
-            .into_response());
+        );
+        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response());
     }
     if form.title.trim().is_empty() {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html =
-            pages_views::pages_new(&user, &app, &token, Some("Title is required")).into_string();
-        return Ok((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            jar,
-            axum::response::Html(html),
-        )
-            .into_response());
+        let markup = pages_views::pages_new(&user, &app, &token, Some("Title is required"));
+        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response());
     }
     let new = NewPage {
         app_id: app.id,
@@ -104,19 +92,13 @@ pub async fn post_pages_create(
         .into_response()),
         Err(lovely_db::DbError::Conflict(_)) => {
             let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-            let html = pages_views::pages_new(
+            let markup = pages_views::pages_new(
                 &user,
                 &app,
                 &token,
                 Some("That slug is already used in this app"),
-            )
-            .into_string();
-            Ok((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                jar,
-                axum::response::Html(html),
-            )
-                .into_response())
+            );
+            Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, markup).into_response())
         }
         Err(e) => Err(e.into()),
     }
@@ -192,7 +174,7 @@ pub async fn get_page_edit(
     let selection = Selection::from_query(q.sel.as_deref(), root);
     let tab = InspectorTab::from_query(q.tab.as_deref());
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = builder(BuilderCtx {
+    let markup = builder(BuilderCtx {
         user: &user,
         app: &app,
         page: &page,
@@ -201,9 +183,8 @@ pub async fn get_page_edit(
         selection,
         tab,
         csrf_token: &token,
-    })
-    .into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    });
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -959,9 +940,8 @@ async fn render_public(
                 lovely_db::list_published_apps_by_owner(&state.pg, owner.id).await?
             };
             let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-            let html =
-                pages_views::user_profile(&owner, &apps, viewer.as_ref(), &token).into_string();
-            return Ok((jar, axum::response::Html(html)).into_response());
+            let markup = pages_views::user_profile(&owner, &apps, viewer.as_ref(), &token);
+            return Ok((jar, markup).into_response());
         }
         return Err(WebError::NotFound);
     };
@@ -985,10 +965,8 @@ async fn render_public(
                 .unwrap_or(false);
             if !unlocked {
                 let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-                let html = pages_views::password_gate(&page, username, slug, &token).into_string();
-                return Ok(
-                    (StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response()
-                );
+                let markup = pages_views::password_gate(&page, username, slug, &token);
+                return Ok((StatusCode::UNAUTHORIZED, jar, markup).into_response());
             }
         }
     }
@@ -1001,7 +979,7 @@ async fn render_public(
     auto_wire_forms(&mut rows, username, slug, &token);
     let tree = Tree::from_db_rows(&rows)?;
     let rendered = tree.render();
-    let html = pages_views::published_page(
+    let markup = pages_views::published_page(
         viewer.as_ref(),
         owner.id,
         &app.slug,
@@ -1009,9 +987,8 @@ async fn render_public(
         &page,
         rendered,
         &token,
-    )
-    .into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    );
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]

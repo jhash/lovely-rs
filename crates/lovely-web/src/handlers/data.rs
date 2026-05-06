@@ -28,8 +28,8 @@ pub async fn get_data_index(
     let cs = list_collections(&state.pg, app.id).await?;
     let history = state.schema.list_for_app(app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::data_index(&user, &app, &cs, &history, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::data_index(&user, &app, &cs, &history, &token);
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -50,8 +50,8 @@ pub async fn get_collection_new(
         .await?
         .ok_or(WebError::NotFound)?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::collection_new(&user, &app, &token, None).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::collection_new(&user, &app, &token, None);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn post_collection_create(
@@ -105,8 +105,8 @@ pub async fn get_collection_edit(
         .await?
         .ok_or(WebError::NotFound)?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::collection_edit(&user, &app, &coll, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::collection_edit(&user, &app, &coll, &token);
+    Ok((jar, markup).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -334,8 +334,8 @@ pub async fn get_collection(
         .ok_or(WebError::NotFound)?;
     let recs = list_records(&state.pg, coll.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::collection_view(&user, &app, &coll, &recs, &token).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::collection_view(&user, &app, &coll, &recs, &token);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn post_collection_delete(
@@ -511,8 +511,8 @@ pub async fn get_data_console(
         .await?
         .ok_or(WebError::NotFound)?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html = data_views::data_console(&user, &app, &token, None, None).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::data_console(&user, &app, &token, None, None);
+    Ok((jar, markup).into_response())
 }
 
 pub async fn post_data_console(
@@ -529,9 +529,8 @@ pub async fn post_data_console(
         .ok_or(WebError::NotFound)?;
     let result = run_console_query(&state, app.id, &form.sql).await;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html =
-        data_views::data_console(&user, &app, &token, Some(&form.sql), Some(result)).into_string();
-    Ok((jar, axum::response::Html(html)).into_response())
+    let markup = data_views::data_console(&user, &app, &token, Some(&form.sql), Some(result));
+    Ok((jar, markup).into_response())
 }
 
 async fn run_console_query(
