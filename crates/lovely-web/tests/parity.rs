@@ -108,11 +108,10 @@ async fn phase9_repeat_renders_one_child_per_record() {
         .send()
         .await
         .unwrap();
-    let li: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'li' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let li: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'li' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
@@ -135,10 +134,7 @@ async fn phase9_repeat_renders_one_child_per_record() {
             "{}/apps/personal/pages/feed/elements/{root}",
             app.url
         ))
-        .form(&[
-            ("repeat_collection", "posts"),
-            ("_csrf", &token),
-        ])
+        .form(&[("repeat_collection", "posts"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
@@ -149,7 +145,11 @@ async fn phase9_repeat_renders_one_child_per_record() {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
-    let r = anon.get(format!("{}/alice/feed", app.url)).send().await.unwrap();
+    let r = anon
+        .get(format!("{}/alice/feed", app.url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 200);
     let body = r.text().await.unwrap();
     for t in ["one", "two", "three"] {
@@ -186,11 +186,10 @@ async fn phase10_undo_text_change() {
         .send()
         .await
         .unwrap();
-    let txt: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let txt: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     // First text mutation.
     let token = app.csrf_token().await.unwrap();
@@ -283,7 +282,11 @@ async fn phase11_theme_vars_inject_into_public_render() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
 
     let anon = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -317,10 +320,7 @@ async fn phase12_custom_head_html_injected() {
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
-        .post(format!(
-            "{}/apps/personal/pages/metas/head",
-            app.url
-        ))
+        .post(format!("{}/apps/personal/pages/metas/head", app.url))
         .form(&[
             (
                 "head_html",
@@ -331,7 +331,11 @@ async fn phase12_custom_head_html_injected() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
 
     let anon = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -343,7 +347,10 @@ async fn phase12_custom_head_html_injected() {
         .await
         .unwrap();
     let body = r.text().await.unwrap();
-    assert!(body.contains("og:image"), "custom head not injected: {body}");
+    assert!(
+        body.contains("og:image"),
+        "custom head not injected: {body}"
+    );
 }
 
 #[tokio::test]
@@ -358,12 +365,12 @@ async fn phase12_head_html_strips_scripts() {
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
-        .post(format!(
-            "{}/apps/personal/pages/scripted/head",
-            app.url
-        ))
+        .post(format!("{}/apps/personal/pages/scripted/head", app.url))
         .form(&[
-            ("head_html", "<script>alert(1)</script><meta name=\"a\" content=\"b\">"),
+            (
+                "head_html",
+                "<script>alert(1)</script><meta name=\"a\" content=\"b\">",
+            ),
             ("_csrf", &token),
         ])
         .send()
@@ -381,7 +388,10 @@ async fn phase12_head_html_strips_scripts() {
         .await
         .unwrap();
     let body = r.text().await.unwrap();
-    assert!(!body.contains("<script>"), "scripts must be stripped: {body}");
+    assert!(
+        !body.contains("<script>"),
+        "scripts must be stripped: {body}"
+    );
     assert!(body.contains("name=\"a\""), "safe meta should pass through");
 }
 
@@ -401,10 +411,7 @@ async fn phase13_password_protected_page_gates_anon() {
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
-        .post(format!(
-            "{}/apps/personal/pages/secret/access",
-            app.url
-        ))
+        .post(format!("{}/apps/personal/pages/secret/access", app.url))
         .form(&[
             ("password", "letmein"),
             ("unlisted", "off"),
@@ -442,10 +449,7 @@ async fn phase13_password_unlocks_page() {
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
-        .post(format!(
-            "{}/apps/personal/pages/secret2/access",
-            app.url
-        ))
+        .post(format!("{}/apps/personal/pages/secret2/access", app.url))
         .form(&[
             ("password", "open-sesame"),
             ("unlisted", "off"),
@@ -486,7 +490,11 @@ async fn phase13_password_unlocks_page() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
 
     let r = anon
         .get(format!("{}/alice/secret2", app.url))

@@ -61,11 +61,10 @@ async fn form_with_source_descendant_auto_wires_action_and_csrf() {
         .send()
         .await
         .unwrap();
-    let root: uuid::Uuid =
-        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'wire'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let root: uuid::Uuid = sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'wire'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
@@ -138,7 +137,10 @@ async fn form_with_source_descendant_auto_wires_action_and_csrf() {
             || body.contains(r#"action="/p/alice/wire/_submit/comments""#),
         "form action must point at the submit endpoint: {body}"
     );
-    assert!(body.contains(r#"method="post""#), "form method must be post: {body}");
+    assert!(
+        body.contains(r#"method="post""#),
+        "form method must be post: {body}"
+    );
     // The input must have name="body" (mapped from source field).
     assert!(
         body.contains(r#"name="body""#),

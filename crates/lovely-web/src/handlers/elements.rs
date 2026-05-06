@@ -350,10 +350,15 @@ pub async fn post_wrap_element(
         return Err(WebError::Forbidden);
     }
     if Some(target_id) == page.root_element {
-        return Err(WebError::Unprocessable("cannot wrap the root element".into()));
+        return Err(WebError::Unprocessable(
+            "cannot wrap the root element".into(),
+        ));
     }
     if !is_valid_tag(&form.tag) || lovely_tree::is_text_tag(&form.tag) {
-        return Err(WebError::BadRequest(format!("unwrappable tag: {}", form.tag)));
+        return Err(WebError::BadRequest(format!(
+            "unwrappable tag: {}",
+            form.tag
+        )));
     }
     let target: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
         "SELECT parent_id, prev_sibling FROM elements WHERE id = $1 AND page_id = $2",
@@ -551,7 +556,9 @@ pub async fn post_update_element(
             .fetch_optional(&state.pg)
             .await
             .map_err(lovely_db::DbError::Sqlx)?;
-    let Some((tag,)) = tag else { return Err(WebError::NotFound) };
+    let Some((tag,)) = tag else {
+        return Err(WebError::NotFound);
+    };
     if !lovely_tree::is_text_tag(&tag) {
         return Err(WebError::Unprocessable(
             "Text content lives on `#text` child elements, not on the parent.".into(),

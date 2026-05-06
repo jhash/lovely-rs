@@ -20,11 +20,10 @@ pub async fn snapshot_page(pool: &PgPool, page_id: Uuid) -> Result<i64, DbError>
     .await?;
 
     // Drop redo branch (any seq > current cursor).
-    let cursor: Option<i64> =
-        sqlx::query_scalar("SELECT revision_cursor FROM pages WHERE id = $1")
-            .bind(page_id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let cursor: Option<i64> = sqlx::query_scalar("SELECT revision_cursor FROM pages WHERE id = $1")
+        .bind(page_id)
+        .fetch_one(&mut *tx)
+        .await?;
     if let Some(c) = cursor {
         sqlx::query("DELETE FROM element_revisions WHERE page_id = $1 AND seq > $2")
             .bind(page_id)
@@ -62,30 +61,33 @@ pub enum Direction {
 /// was nothing to do.
 pub async fn step(pool: &PgPool, page_id: Uuid, dir: Direction) -> Result<Option<i64>, DbError> {
     let mut tx: Transaction<'_, Postgres> = pool.begin().await?;
-    let cursor: Option<i64> =
-        sqlx::query_scalar("SELECT revision_cursor FROM pages WHERE id = $1")
-            .bind(page_id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let cursor: Option<i64> = sqlx::query_scalar("SELECT revision_cursor FROM pages WHERE id = $1")
+        .bind(page_id)
+        .fetch_one(&mut *tx)
+        .await?;
     let target_seq: Option<(i64,)> = match (dir, cursor) {
-        (Direction::Undo, Some(c)) => sqlx::query_as(
-            "SELECT seq FROM element_revisions \
+        (Direction::Undo, Some(c)) => {
+            sqlx::query_as(
+                "SELECT seq FROM element_revisions \
              WHERE page_id = $1 AND seq < $2 \
              ORDER BY seq DESC LIMIT 1",
-        )
-        .bind(page_id)
-        .bind(c)
-        .fetch_optional(&mut *tx)
-        .await?,
-        (Direction::Redo, Some(c)) => sqlx::query_as(
-            "SELECT seq FROM element_revisions \
+            )
+            .bind(page_id)
+            .bind(c)
+            .fetch_optional(&mut *tx)
+            .await?
+        }
+        (Direction::Redo, Some(c)) => {
+            sqlx::query_as(
+                "SELECT seq FROM element_revisions \
              WHERE page_id = $1 AND seq > $2 \
              ORDER BY seq ASC LIMIT 1",
-        )
-        .bind(page_id)
-        .bind(c)
-        .fetch_optional(&mut *tx)
-        .await?,
+            )
+            .bind(page_id)
+            .bind(c)
+            .fetch_optional(&mut *tx)
+            .await?
+        }
         (_, None) => None,
     };
     let Some((target,)) = target_seq else {

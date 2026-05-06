@@ -252,13 +252,15 @@ pub async fn patch_element(
                 .fetch_optional(&state.pg)
                 .await
                 .map_err(lovely_db::DbError::Sqlx)?;
-        let final_tag = patch.tag.as_deref().or(current_tag.as_ref().map(|t| t.0.as_str()));
+        let final_tag = patch
+            .tag
+            .as_deref()
+            .or(current_tag.as_ref().map(|t| t.0.as_str()));
         if final_tag.is_some_and(lovely_tree::is_text_tag) {
             patch.payload = Some(json!({ "text": text }));
         } else if !text.is_empty() {
             return Err(WebError::Unprocessable(
-                "Text content lives on `#text` child elements, not on the parent."
-                    .into(),
+                "Text content lives on `#text` child elements, not on the parent.".into(),
             ));
         }
     }
@@ -406,8 +408,16 @@ pub async fn post_undo(
     jar: CookieJar,
     Form(form): Form<UndoForm>,
 ) -> Result<Response, WebError> {
-    step_revision(&state, user.id, &app_slug, &page_slug, jar, form._csrf, RevisionDirection::Undo)
-        .await
+    step_revision(
+        &state,
+        user.id,
+        &app_slug,
+        &page_slug,
+        jar,
+        form._csrf,
+        RevisionDirection::Undo,
+    )
+    .await
 }
 
 pub async fn post_redo(
@@ -417,8 +427,16 @@ pub async fn post_redo(
     jar: CookieJar,
     Form(form): Form<UndoForm>,
 ) -> Result<Response, WebError> {
-    step_revision(&state, user.id, &app_slug, &page_slug, jar, form._csrf, RevisionDirection::Redo)
-        .await
+    step_revision(
+        &state,
+        user.id,
+        &app_slug,
+        &page_slug,
+        jar,
+        form._csrf,
+        RevisionDirection::Redo,
+    )
+    .await
 }
 
 async fn step_revision(

@@ -159,8 +159,7 @@ pub struct Record {
     pub updated_at: DateTime<Utc>,
 }
 
-const COLLECTION_COLUMNS: &str =
-    "id, app_id, name, fields_json, created_at, updated_at";
+const COLLECTION_COLUMNS: &str = "id, app_id, name, fields_json, created_at, updated_at";
 const RECORD_COLUMNS: &str = "id, collection_id, data_json, created_at, updated_at";
 
 pub async fn create_collection(

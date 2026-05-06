@@ -48,8 +48,8 @@ fn assert_select_trigger(trigger: &str, expected_focus: &str) -> String {
     // itself, so emitting preview-stale here would let the asides'
     // initial-render hx-get fetch with the OLD ?sel= and race the JS
     // swap to a stale inspector.
-    let v: serde_json::Value = serde_json::from_str(trigger)
-        .unwrap_or_else(|_| panic!("HX-Trigger not JSON: {trigger}"));
+    let v: serde_json::Value =
+        serde_json::from_str(trigger).unwrap_or_else(|_| panic!("HX-Trigger not JSON: {trigger}"));
     assert!(
         v.get("preview-stale").is_none(),
         "select trigger must NOT include preview-stale (would race JS swap): {trigger}"

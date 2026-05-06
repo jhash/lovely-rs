@@ -146,12 +146,10 @@ async fn inspector_form_uses_hx_trigger_change() {
         .send()
         .await
         .unwrap();
-    let root: uuid::Uuid = sqlx::query_scalar(
-        "SELECT root_element FROM pages WHERE slug = 'as'",
-    )
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let root: uuid::Uuid = sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'as'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
@@ -219,11 +217,10 @@ async fn anchor_inspector_shows_href_field() {
         .send()
         .await
         .unwrap();
-    let a: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let a: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     let r = app
         .client
@@ -262,11 +259,10 @@ async fn img_inspector_shows_src_and_alt() {
         .send()
         .await
         .unwrap();
-    let img: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'img' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let img: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'img' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     let r = app
         .client

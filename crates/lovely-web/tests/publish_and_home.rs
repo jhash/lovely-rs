@@ -75,11 +75,10 @@ async fn deleting_the_home_page_is_rejected() {
         "Home page deletion should be rejected (got {})",
         r.status()
     );
-    let still: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM pages WHERE slug = ''")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let still: (i64,) = sqlx::query_as("SELECT count(*) FROM pages WHERE slug = ''")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert_eq!(still.0, 1, "home page should still exist");
 }
 

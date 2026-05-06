@@ -225,8 +225,14 @@ async fn settings_page_holds_rename_and_theme() {
         .unwrap();
     assert_eq!(r.status(), 200);
     let body = r.text().await.unwrap();
-    assert!(body.contains("/apps/personal/rename"), "rename form on settings");
-    assert!(body.contains("/apps/personal/theme"), "theme form on settings");
+    assert!(
+        body.contains("/apps/personal/rename"),
+        "rename form on settings"
+    );
+    assert!(
+        body.contains("/apps/personal/theme"),
+        "theme form on settings"
+    );
 }
 
 #[tokio::test]
@@ -244,10 +250,12 @@ async fn dashboard_does_not_show_theme_or_rename() {
         .await
         .unwrap();
     let body = r.text().await.unwrap();
-    assert!(!body.contains("/apps/personal/rename"), "rename should be on settings");
     assert!(
-        !body.to_lowercase().contains("theme")
-            || body.contains("/apps/personal/settings"),
+        !body.contains("/apps/personal/rename"),
+        "rename should be on settings"
+    );
+    assert!(
+        !body.to_lowercase().contains("theme") || body.contains("/apps/personal/settings"),
         "theme heading should be on settings, not dashboard"
     );
 }

@@ -74,11 +74,10 @@ async fn text_with_coll_field_placeholders_interpolates_on_render() {
         .send()
         .await
         .unwrap();
-    let root: uuid::Uuid =
-        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'ip'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let root: uuid::Uuid = sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'ip'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
@@ -135,11 +134,10 @@ async fn attr_with_coll_field_placeholders_interpolates_on_render() {
         .send()
         .await
         .unwrap();
-    let root: uuid::Uuid =
-        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'ap'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let root: uuid::Uuid = sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'ap'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     // Add an <a> element, then patch its href attr to a placeholder.
     let token = app.csrf_token().await.unwrap();
@@ -154,15 +152,17 @@ async fn attr_with_coll_field_placeholders_interpolates_on_render() {
         .send()
         .await
         .unwrap();
-    let a_id: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let a_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
-        .patch(format!("{}/apps/personal/pages/ap/elements/{a_id}", app.url))
+        .patch(format!(
+            "{}/apps/personal/pages/ap/elements/{a_id}",
+            app.url
+        ))
         .form(&[
             ("attr_name", "href"),
             ("attr_value", "{{links.href}}"),

@@ -1,8 +1,6 @@
 use crate::auth::{csrf, AuthUser, MaybeUser};
 use crate::state::AppState;
-use crate::views::builder::{
-    builder, BuilderCtx, InspectorTab, Selection,
-};
+use crate::views::builder::{builder, BuilderCtx, InspectorTab, Selection};
 use crate::views::pages as pages_views;
 use crate::WebError;
 use axum::extract::{Path, Query, State};
@@ -332,7 +330,10 @@ pub async fn post_page_unlock(
     );
     Ok((
         StatusCode::SEE_OTHER,
-        [("Location", target.as_str()), ("Set-Cookie", cookie.as_str())],
+        [
+            ("Location", target.as_str()),
+            ("Set-Cookie", cookie.as_str()),
+        ],
         "",
     )
         .into_response())
@@ -435,19 +436,18 @@ pub(crate) async fn expand_repeaters(
                 let new_parent = if orig.id.into_inner() == template_id {
                     Some(ElementUuid(parent_id))
                 } else {
-                    orig.parent_id
-                        .map(|p| ElementUuid(*id_map.get(&p.into_inner()).unwrap_or(&p.into_inner())))
+                    orig.parent_id.map(|p| {
+                        ElementUuid(*id_map.get(&p.into_inner()).unwrap_or(&p.into_inner()))
+                    })
                 };
                 let new_prev = if orig.id.into_inner() == template_id {
                     prev_root_clone.map(ElementUuid)
                 } else {
-                    orig.prev_sibling
-                        .map(|p| ElementUuid(*id_map.get(&p.into_inner()).unwrap_or(&p.into_inner())))
+                    orig.prev_sibling.map(|p| {
+                        ElementUuid(*id_map.get(&p.into_inner()).unwrap_or(&p.into_inner()))
+                    })
                 };
-                let new_text = orig
-                    .text
-                    .as_ref()
-                    .map(|t| interpolate(t, record));
+                let new_text = orig.text.as_ref().map(|t| interpolate(t, record));
                 let new_attrs = interpolate_attrs(&orig.attrs_json, record);
                 rows.push(ElementRow {
                     id: ElementUuid(new_id),
@@ -561,7 +561,11 @@ pub(crate) fn auto_wire_forms(
     }
     // Rewrite each form's action + method, and append a CSRF hidden
     // input as a child of each wired form.
-    let segment = if page_slug.is_empty() { "~home" } else { page_slug };
+    let segment = if page_slug.is_empty() {
+        "~home"
+    } else {
+        page_slug
+    };
     let mut csrf_inputs: Vec<lovely_tree::ElementRow> = Vec::new();
     for (form_id, coll) in form_to_source_collection {
         if let Some(&idx) = id_to_idx.get(&form_id) {
@@ -587,8 +591,7 @@ pub(crate) fn auto_wire_forms(
                 .filter(|r| r.parent_id.map(|p| p.into_inner()) == Some(form_id))
                 .find(|r| {
                     !rows.iter().any(|other| {
-                        other.prev_sibling.map(|p| p.into_inner())
-                            == Some(r.id.into_inner())
+                        other.prev_sibling.map(|p| p.into_inner()) == Some(r.id.into_inner())
                     })
                 })
                 .map(|r| r.id);
@@ -926,8 +929,7 @@ async fn render_public(
 ) -> Result<Response, WebError> {
     let (owner, app) = match app_slug {
         Some(name) => {
-            let Some(owner) = lovely_db::find_user_by_username(&state.pg, username).await?
-            else {
+            let Some(owner) = lovely_db::find_user_by_username(&state.pg, username).await? else {
                 return Err(WebError::NotFound);
             };
             let Some(app) =
@@ -984,12 +986,9 @@ async fn render_public(
             if !unlocked {
                 let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
                 let html = pages_views::password_gate(&page, username, slug, &token).into_string();
-                return Ok((
-                    StatusCode::UNAUTHORIZED,
-                    jar,
-                    axum::response::Html(html),
-                )
-                    .into_response());
+                return Ok(
+                    (StatusCode::UNAUTHORIZED, jar, axum::response::Html(html)).into_response()
+                );
             }
         }
     }
@@ -1140,12 +1139,9 @@ fn publish_pill_oob_fragment(published: bool) -> String {
         ("pill pill-draft", "draft")
     };
     format!(
-        r#"<span id="topbar-publish-pill" hx-swap-oob="true" class="{class}">{label}</span>"#
-        // Tree page row — id matches the maud template marker.
-        // The two-fragment string is concatenated so both swap.
-    ) + &format!(
-        r#"<span id="tree-page-pill" hx-swap-oob="true" class="{class}">{label}</span>"#
-    )
+        r#"<span id="topbar-publish-pill" hx-swap-oob="true" class="{class}">{label}</span>"# // Tree page row — id matches the maud template marker.
+                                                                                              // The two-fragment string is concatenated so both swap.
+    ) + &format!(r#"<span id="tree-page-pill" hx-swap-oob="true" class="{class}">{label}</span>"#)
 }
 
 fn is_valid_slug(s: &str) -> bool {

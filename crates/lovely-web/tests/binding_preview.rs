@@ -49,36 +49,48 @@ async fn binding_does_not_500_the_preview() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
         .post(format!("{}/apps/personal/data/comments/fields", app.url))
-        .form(&[("name", "content"), ("field_type", "text"), ("_csrf", &token)])
+        .form(&[
+            ("name", "content"),
+            ("field_type", "text"),
+            ("_csrf", &token),
+        ])
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
 
     // Insert a record so resolve_bindings has something to substitute.
     let token = app.csrf_token().await.unwrap();
     let r = app
         .client
-        .post(format!(
-            "{}/apps/personal/data/comments/records",
-            app.url
-        ))
+        .post(format!("{}/apps/personal/data/comments/records", app.url))
         .form(&[("content", "hello world"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+    assert!(
+        r.status().is_redirection() || r.status() == 200,
+        "{}",
+        r.status()
+    );
 
-    let root: uuid::Uuid =
-        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'p1'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let root: uuid::Uuid = sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = 'p1'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     // Bind the ROOT element directly (a div).
     let token = app.csrf_token().await.unwrap();
@@ -107,7 +119,10 @@ async fn binding_does_not_500_the_preview() {
         .unwrap();
     let status = r.status();
     let body = r.text().await.unwrap();
-    assert_eq!(status, 200, "preview after bind on root should not 500: {body}");
+    assert_eq!(
+        status, 200,
+        "preview after bind on root should not 500: {body}"
+    );
 
     // Also: GET the public render path (this DOES run resolve_bindings).
     sqlx::query("UPDATE pages SET published_at = now() WHERE slug = 'p1'")
@@ -122,5 +137,8 @@ async fn binding_does_not_500_the_preview() {
         .unwrap();
     let status = r.status();
     let body = r.text().await.unwrap();
-    assert_eq!(status, 200, "public render after bind should not 500: {body}");
+    assert_eq!(
+        status, 200,
+        "public render after bind should not 500: {body}"
+    );
 }

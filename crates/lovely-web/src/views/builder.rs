@@ -98,10 +98,7 @@ pub fn builder(ctx: BuilderCtx<'_>) -> Markup {
         (false, "") => format!("/{}/{}/~home", ctx.user.username, ctx.app.slug),
         (false, slug) => format!("/{}/{}/{}", ctx.user.username, ctx.app.slug, slug),
     };
-    let canvas_url = format!(
-        "/apps/{}/pages/{}/canvas",
-        ctx.app.slug, edit_segment
-    );
+    let canvas_url = format!("/apps/{}/pages/{}/canvas", ctx.app.slug, edit_segment);
     // Initial canvas content — rendered inline so first paint matches
     // the live preview without an extra round trip. Falls back to
     // empty markup if the tree is malformed.
@@ -199,10 +196,7 @@ fn topbar(ctx: &BuilderCtx<'_>, public_path: &str, edit_segment: &str) -> Markup
 pub fn tree_fragment(ctx: &BuilderCtx<'_>) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let page_selected = matches!(ctx.selection, Selection::Page);
-    let elements_url = format!(
-        "/apps/{}/pages/{}/elements",
-        ctx.app.slug, edit_segment
-    );
+    let elements_url = format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment);
     html! {
         ul .tree-list .tree-root data-parent-id=[ctx.page.root_element] {
             li .tree-page-row
@@ -326,7 +320,9 @@ fn row_actions_menu(
     let id = row.id;
     let app_slug = &ctx.app.slug;
     let csrf_token = ctx.csrf_token;
-    let is_leaf = ElementTag::from_name(&row.tag).map(|t| t.is_leaf()).unwrap_or(true);
+    let is_leaf = ElementTag::from_name(&row.tag)
+        .map(|t| t.is_leaf())
+        .unwrap_or(true);
     html! {
         details .tree-actions data-actions {
             summary title="Actions" { "⋯" }
@@ -508,10 +504,7 @@ fn page_inspector(ctx: &BuilderCtx<'_>) -> Markup {
 /// insert into a root install + page.root_element update.
 fn page_add_element_section(ctx: &BuilderCtx<'_>, root_id: Option<Uuid>) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
-    let elements_url = format!(
-        "/apps/{}/pages/{}/elements",
-        ctx.app.slug, edit_segment
-    );
+    let elements_url = format!("/apps/{}/pages/{}/elements", ctx.app.slug, edit_segment);
     let has_root = root_id.is_some();
     html! {
         div .inspector-add {
@@ -603,7 +596,9 @@ fn element_inspector(ctx: &BuilderCtx<'_>, id: Uuid) -> Markup {
 fn add_child_form(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let is_root = ctx.page.root_element == Some(row.id.into_inner());
-    let is_leaf = ElementTag::from_name(&row.tag).map(|t| t.is_leaf()).unwrap_or(true);
+    let is_leaf = ElementTag::from_name(&row.tag)
+        .map(|t| t.is_leaf())
+        .unwrap_or(true);
     html! {
         div .inspector-add {
             h3 { "Add element" }
@@ -914,19 +909,10 @@ fn dedicated_attrs_for_tag(tag: &str) -> &'static [(&'static str, &'static str, 
             ("rows", "number", ""),
         ],
         "select" => &[("name", "text", "")],
-        "form" => &[
-            ("action", "url", "/path"),
-            ("method", "text", "post"),
-        ],
-        "button" => &[
-            ("type", "text", "button"),
-            ("name", "text", ""),
-        ],
+        "form" => &[("action", "url", "/path"), ("method", "text", "post")],
+        "button" => &[("type", "text", "button"), ("name", "text", "")],
         "label" => &[("for", "text", "")],
-        "iframe" => &[
-            ("src", "url", ""),
-            ("title", "text", ""),
-        ],
+        "iframe" => &[("src", "url", ""), ("title", "text", "")],
         _ => &[],
     }
 }

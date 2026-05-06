@@ -136,11 +136,10 @@ async fn rename_app_updates_slug() {
         .unwrap();
     assert!(r.status().is_redirection(), "{}", r.status());
 
-    let row: (String, String) =
-        sqlx::query_as("SELECT slug, name FROM apps WHERE name = 'Main'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let row: (String, String) = sqlx::query_as("SELECT slug, name FROM apps WHERE name = 'Main'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert_eq!(row.0, "main");
     assert_eq!(row.1, "Main");
 }
@@ -225,11 +224,7 @@ async fn insert_record_persists_and_renders() {
     let r = app
         .client
         .post(format!("{}/apps/personal/data/posts/records", app.url))
-        .form(&[
-            ("title", "Hello"),
-            ("body", "World"),
-            ("_csrf", &token),
-        ])
+        .form(&[("title", "Hello"), ("body", "World"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
@@ -288,10 +283,7 @@ async fn bind_element_to_collection_field_renders_value() {
     let _ = app
         .client
         .post(format!("{}/apps/personal/data/site/fields", app.url))
-        .form(&[
-            ("name", "tagline"),
-            ("_csrf", &token),
-        ])
+        .form(&[("name", "tagline"), ("_csrf", &token)])
         .send()
         .await
         .unwrap();
@@ -327,11 +319,10 @@ async fn bind_element_to_collection_field_renders_value() {
         .send()
         .await
         .unwrap();
-    let txt: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let txt: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     let token = app.csrf_token().await.unwrap();
     let r = app

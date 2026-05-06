@@ -8,8 +8,8 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
 use lovely_db::{
-    count_apps_for_owner, create_app, delete_app, find_app_by_owner_and_slug,
-    list_apps_by_owner, list_pages_in_app, update_app, AppPatch, NewApp,
+    count_apps_for_owner, create_app, delete_app, find_app_by_owner_and_slug, list_apps_by_owner,
+    list_pages_in_app, update_app, AppPatch, NewApp,
 };
 use serde::Deserialize;
 
@@ -36,8 +36,7 @@ pub async fn get_app_dashboard(
     let pages = list_pages_in_app(&state.pg, app.id).await?;
     let collections = lovely_db::list_collections(&state.pg, app.id).await?;
     let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-    let html =
-        apps_views::app_dashboard(&user, &app, &pages, &collections, &token).into_string();
+    let html = apps_views::app_dashboard(&user, &app, &pages, &collections, &token).into_string();
     Ok((jar, axum::response::Html(html)).into_response())
 }
 
@@ -108,14 +107,21 @@ pub async fn post_apps_create(
             Some("Slug must be 1–40 chars: a-z, 0-9, hyphen"),
         )
         .into_string();
-        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, axum::response::Html(html))
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            jar,
+            axum::response::Html(html),
+        )
             .into_response());
     }
     if form.name.trim().is_empty() {
         let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-        let html =
-            apps_views::apps_new(&user, &token, Some("Name is required")).into_string();
-        return Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, axum::response::Html(html))
+        let html = apps_views::apps_new(&user, &token, Some("Name is required")).into_string();
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            jar,
+            axum::response::Html(html),
+        )
             .into_response());
     }
     match create_app(
@@ -133,13 +139,13 @@ pub async fn post_apps_create(
         Ok(app) => Ok(Redirect::to(&format!("/apps/{}", app.slug)).into_response()),
         Err(lovely_db::DbError::Conflict(_)) => {
             let (jar, token) = csrf::ensure_cookie(jar, &state.base_url);
-            let html = apps_views::apps_new(
-                &user,
-                &token,
-                Some("That slug is already used"),
+            let html = apps_views::apps_new(&user, &token, Some("That slug is already used"))
+                .into_string();
+            Ok((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                jar,
+                axum::response::Html(html),
             )
-            .into_string();
-            Ok((StatusCode::UNPROCESSABLE_ENTITY, jar, axum::response::Html(html))
                 .into_response())
         }
         Err(e) => Err(e.into()),
@@ -246,17 +252,18 @@ pub async fn post_app_theme(
         .await?
         .ok_or(WebError::NotFound)?;
     let mut obj = serde_json::Map::new();
-    let put = |obj: &mut serde_json::Map<String, serde_json::Value>, key: &str, val: Option<&str>| {
-        if let Some(v) = val.filter(|s| !s.is_empty()) {
-            // Whitelist a small set of value-grammars to keep CSS sane.
-            let ok = v
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || ",.-_# ()%/".contains(c));
-            if ok {
-                obj.insert(key.to_string(), serde_json::Value::String(v.to_string()));
+    let put =
+        |obj: &mut serde_json::Map<String, serde_json::Value>, key: &str, val: Option<&str>| {
+            if let Some(v) = val.filter(|s| !s.is_empty()) {
+                // Whitelist a small set of value-grammars to keep CSS sane.
+                let ok = v
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || ",.-_# ()%/".contains(c));
+                if ok {
+                    obj.insert(key.to_string(), serde_json::Value::String(v.to_string()));
+                }
             }
-        }
-    };
+        };
     put(&mut obj, "primary", form.primary.as_deref());
     put(&mut obj, "background", form.background.as_deref());
     put(&mut obj, "ink", form.ink.as_deref());
@@ -324,7 +331,9 @@ pub async fn get_check_app_slug(
     if slug.is_empty() || !is_valid_app_slug(slug) {
         return Ok(axum::response::Html("").into_response());
     }
-    let taken = find_app_by_owner_and_slug(&state.pg, user.id, slug).await?.is_some();
+    let taken = find_app_by_owner_and_slug(&state.pg, user.id, slug)
+        .await?
+        .is_some();
     let html = if taken {
         format!(
             r#"<span class="slug-error">"{}" is already used by another app.</span>"#,

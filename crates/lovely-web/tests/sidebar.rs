@@ -136,20 +136,18 @@ async fn add_after_relinks_next_sibling() {
             .await
             .unwrap();
     }
-    let a: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h1'",
-    )
-    .bind(root)
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
-    let c: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h3'",
-    )
-    .bind(root)
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let a: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h1'")
+            .bind(root)
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+    let c: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h3'")
+            .bind(root)
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
     // sanity: C.prev_sibling = A
     let prev_c: Option<uuid::Uuid> =
         sqlx::query_scalar("SELECT prev_sibling FROM elements WHERE id = $1")
@@ -173,13 +171,12 @@ async fn add_after_relinks_next_sibling() {
         .unwrap();
     assert!(r.status().is_redirection() || r.status() == 200);
 
-    let b: uuid::Uuid = sqlx::query_scalar(
-        "SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h2'",
-    )
-    .bind(root)
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let b: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 AND tag = 'h2'")
+            .bind(root)
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
     let new_prev_c: Option<uuid::Uuid> =
         sqlx::query_scalar("SELECT prev_sibling FROM elements WHERE id = $1")
             .bind(c)
@@ -220,11 +217,7 @@ async fn inline_text_renders_without_wrapping_tag() {
     let token = app.csrf_token().await.unwrap();
     // Tree shape: root → [#text "follow the link: ", <a> → [#text "here"], #text "!"]
     // Add the two top-level #text siblings + an <a>.
-    for (tag, text) in [
-        ("#text", "follow the link: "),
-        ("a", ""),
-        ("#text", "!"),
-    ] {
+    for (tag, text) in [("#text", "follow the link: "), ("a", ""), ("#text", "!")] {
         let _ = app
             .client
             .post(format!("{}/apps/personal/pages/inline/elements", app.url))
@@ -239,11 +232,10 @@ async fn inline_text_renders_without_wrapping_tag() {
             .unwrap();
     }
     // Add a #text "here" child inside the <a>.
-    let a_id: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let a_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = 'a' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     let token = app.csrf_token().await.unwrap();
     let _ = app
         .client
@@ -275,7 +267,10 @@ async fn inline_text_renders_without_wrapping_tag() {
         "inline text should render adjacent: {body}"
     );
     // The #text tag itself must not appear in the rendered output.
-    assert!(!body.contains("<#text"), "#text tag should not render literally");
+    assert!(
+        !body.contains("<#text"),
+        "#text tag should not render literally"
+    );
 }
 
 // ============================================================
@@ -302,8 +297,14 @@ async fn sidebar_tree_row_has_actions_menu() {
         .unwrap();
     assert_eq!(r.status(), 200);
     let body = r.text().await.unwrap();
-    assert!(body.contains("data-actions"), "row should expose data-actions menu");
-    assert!(body.contains("aria-current=\"true\""), "selected row marked");
+    assert!(
+        body.contains("data-actions"),
+        "row should expose data-actions menu"
+    );
+    assert!(
+        body.contains("aria-current=\"true\""),
+        "selected row marked"
+    );
 }
 
 #[tokio::test]

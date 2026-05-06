@@ -138,11 +138,7 @@ pub async fn post_field_add(
         field_type,
     });
     lovely_db::collections::set_collection_fields(&state.pg, coll.id, &fields).await?;
-    Ok(Redirect::to(&format!(
-        "/apps/{}/data/{}/edit",
-        app.slug, coll.name
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -174,18 +170,12 @@ pub async fn post_collection_rename(
         ));
     }
     if form.new_name == coll.name {
-        return Ok(Redirect::to(&format!(
-            "/apps/{}/data/{}/edit",
-            app.slug, coll.name
-        ))
-        .into_response());
+        return Ok(
+            Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response(),
+        );
     }
     let updated = lovely_db::rename_collection(&state.pg, coll.id, &form.new_name).await?;
-    Ok(Redirect::to(&format!(
-        "/apps/{}/data/{}/edit",
-        app.slug, updated.name
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, updated.name)).into_response())
 }
 
 #[derive(Deserialize, Default)]
@@ -217,18 +207,12 @@ pub async fn post_field_rename(
         ));
     }
     if form.new_name == field_name {
-        return Ok(Redirect::to(&format!(
-            "/apps/{}/data/{}/edit",
-            app.slug, coll.name
-        ))
-        .into_response());
+        return Ok(
+            Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response(),
+        );
     }
     lovely_db::collections::rename_field(&state.pg, coll.id, &field_name, &form.new_name).await?;
-    Ok(Redirect::to(&format!(
-        "/apps/{}/data/{}/edit",
-        app.slug, coll.name
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response())
 }
 
 pub async fn post_field_delete(
@@ -247,11 +231,7 @@ pub async fn post_field_delete(
         .await?
         .ok_or(WebError::NotFound)?;
     lovely_db::collections::delete_field(&state.pg, coll.id, &field_name).await?;
-    Ok(Redirect::to(&format!(
-        "/apps/{}/data/{}/edit",
-        app.slug, coll.name
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response())
 }
 
 pub async fn get_collection(

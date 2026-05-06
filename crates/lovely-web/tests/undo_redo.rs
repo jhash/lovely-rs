@@ -119,7 +119,10 @@ async fn undo_with_no_history_is_a_noop() {
     let before = count_total(&app, "").await;
     click_undo(&app, "~home").await;
     let after = count_total(&app, "").await;
-    assert_eq!(after, before, "undo with no history must not modify the page");
+    assert_eq!(
+        after, before,
+        "undo with no history must not modify the page"
+    );
     assert!(after >= 1, "page should still have its root element");
 }
 
@@ -143,7 +146,10 @@ async fn undo_first_edit_returns_to_initial_state() {
         "undo should remove the freshly-added element"
     );
     let total = count_total(&app, "").await;
-    assert_eq!(total, 1, "root must remain after undo (got {total} elements)");
+    assert_eq!(
+        total, 1,
+        "root must remain after undo (got {total} elements)"
+    );
 }
 
 #[tokio::test]
@@ -210,13 +216,12 @@ async fn new_edit_after_undo_truncates_redo_branch() {
     click_undo(&app, "~home").await; // now at {h1}
     add_child(&app, "~home", root, "section").await; // diverges from h2 history
     assert_eq!(count_children(&app, root).await, 2);
-    let tags: Vec<String> = sqlx::query_scalar(
-        "SELECT tag FROM elements WHERE parent_id = $1 ORDER BY created_at ASC",
-    )
-    .bind(root)
-    .fetch_all(&app.pg)
-    .await
-    .unwrap();
+    let tags: Vec<String> =
+        sqlx::query_scalar("SELECT tag FROM elements WHERE parent_id = $1 ORDER BY created_at ASC")
+            .bind(root)
+            .fetch_all(&app.pg)
+            .await
+            .unwrap();
     assert!(tags.contains(&"h1".to_string()) && tags.contains(&"section".to_string()));
 
     // Redo should be a no-op now (the branch was truncated).
@@ -244,8 +249,5 @@ async fn undo_never_empties_the_page() {
         click_redo(&app, "~home").await;
         click_redo(&app, "~home").await;
     }
-    assert!(
-        count_total(&app, "").await >= 1,
-        "root must always remain"
-    );
+    assert!(count_total(&app, "").await >= 1, "root must always remain");
 }

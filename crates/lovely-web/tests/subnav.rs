@@ -45,7 +45,10 @@ async fn dashboard_subnav_marks_home_active() {
     let home_active = body
         .lines()
         .any(|l| l.contains(">Home<") && l.contains("aria-current=\"page\""));
-    assert!(home_active, "Home tab should have aria-current=page on dashboard");
+    assert!(
+        home_active,
+        "Home tab should have aria-current=page on dashboard"
+    );
 }
 
 #[tokio::test]
@@ -108,7 +111,10 @@ async fn settings_subnav_marks_settings_active() {
     let settings_active = body
         .lines()
         .any(|l| l.contains(">Settings<") && l.contains("aria-current=\"page\""));
-    assert!(settings_active, "Settings tab should have aria-current=page");
+    assert!(
+        settings_active,
+        "Settings tab should have aria-current=page"
+    );
 }
 
 #[tokio::test]
@@ -160,11 +166,10 @@ async fn create_collection_with_name_only() {
     );
 
     // No fields yet — coll exists with empty fields_json.
-    let n: (i64,) =
-        sqlx::query_as("SELECT count(*) FROM collections WHERE name = 'posts'")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let n: (i64,) = sqlx::query_as("SELECT count(*) FROM collections WHERE name = 'posts'")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert_eq!(n.0, 1);
     let fields: serde_json::Value =
         sqlx::query_scalar("SELECT fields_json FROM collections WHERE name = 'posts'")
@@ -201,7 +206,11 @@ async fn add_field_appends_to_collection() {
             .send()
             .await
             .unwrap();
-        assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+        assert!(
+            r.status().is_redirection() || r.status() == 200,
+            "{}",
+            r.status()
+        );
     }
 
     let fields: serde_json::Value =
@@ -261,11 +270,10 @@ async fn rename_field_migrates_record_data() {
         .unwrap();
     assert!(r.status().is_redirection() || r.status() == 200);
 
-    let rec: serde_json::Value =
-        sqlx::query_scalar("SELECT data_json FROM records LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let rec: serde_json::Value = sqlx::query_scalar("SELECT data_json FROM records LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert_eq!(rec.get("headline").and_then(|v| v.as_str()), Some("hi"));
     assert!(rec.get("title").is_none());
 }
@@ -322,10 +330,9 @@ async fn delete_field_clears_record_data() {
             .await
             .unwrap();
     assert_eq!(fields, serde_json::json!([]));
-    let rec: serde_json::Value =
-        sqlx::query_scalar("SELECT data_json FROM records LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let rec: serde_json::Value = sqlx::query_scalar("SELECT data_json FROM records LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert!(rec.get("title").is_none(), "field value should be stripped");
 }

@@ -28,11 +28,100 @@ rather than copy-paste.
 
 ### App sub-nav
 
-Every page under `/apps/{slug}*` renders the sub-nav (Pages / Data /
-Settings) so users can pivot without going up to the dashboard. The
-active tab uses both `aria-current="page"` and an `.active` class. Hover,
-focus, and active states are all distinct (see static/style.css ::
-`nav.app-subnav`).
+Every page under `/apps/{slug}*` renders the sub-nav (Home / Pages /
+Data / Settings) so users can pivot without going up to the dashboard.
+The active tab uses both `aria-current="page"` and an `.active` class.
+Hover, focus, and active states are all distinct (see static/style.css
+:: `nav.app-subnav`).
+
+### Breadcrumbs
+
+Last segment is rendered as `<span class="current">…</span>` and styled
+bold + dark via `nav.breadcrumbs .current` so the active location is
+visually distinct from the navigable ancestors.
+
+### Click-target wrappers
+
+Tree row "buttons" and the canvas backdrop are plain `<div role="button"
+tabindex="0">` wrappers — htmx hx-get/hx-post bind to clicks regardless
+of element. A small global `keydown` handler in `static/tree.js`
+forwards Enter/Space on `[role="button"]` to a click so keyboard
+accessibility is preserved without real `<button>` tags.
+
+### Reusable form atoms
+
+`crates/lovely-web/src/views/components.rs` hosts shared maud helpers
+(`labeled_checkbox(name, label, checked)`). Use these for inline
+checkboxes — they enforce a single `.checkbox-row` layout that wins
+against the `.inspector-form` column flex.
+
+## Page model
+
+### Default Home page per app
+
+Every app gets a default Home page (slug = `""`, title = `Home`) at
+`create_app` time. The empty-slug page can be published or not, but
+`delete_page_handler` returns 422 — the home page is structural and
+can't be removed.
+
+### Page rendering pipeline
+
+`render_public` (and the editor canvas fragment) run these passes in
+order on the loaded element rows:
+
+1. `expand_repeaters` — every `data-lovely-repeat` element's first
+   child is cloned once per record in the named collection, with
+   `{{field}}` interpolation in text + attrs.
+2. `resolve_bindings` — `data-lovely-bind="coll.field"` substitutes the
+   first record's value as the element's text (or `value` attr for
+   `<input>` / `<textarea>` content).
+3. `interpolate_collection_refs` — global `{{coll.field}}` placeholders
+   in any `#text` payload or attribute value are replaced from a
+   per-collection first-record cache.
+4. `auto_wire_forms` — forms whose descendants carry
+   `data-lovely-source` get their action + method rewritten to
+   `/p/{user}/{slug}/_submit/{coll}`, descendant input `name` attrs
+   mapped to the source field, and a synthetic `<input type="hidden"
+   name="_csrf">` injected.
+
+### Public render paths
+
+- `/{username}` — default app's home page.
+- `/{username}/{page-slug}` — default app's named page.
+- `/{username}/{app-slug}/{page-slug}` — non-default app's named page
+  (use `~home` for empty page-slug).
+
+Non-owners visiting an unpublished page get a 303 to `/`. Unlisted
+pages 404 (semantically distinct from "not yet published"). Owners
+always see their drafts.
+
+### Element tag conventions
+
+- `lovely_tree::ElementTag::TEXT_NAME` is the canonical `"#text"`
+  literal; prefer this constant over the bare string.
+- `ElementRow::is_text()` / `ElementDbRow::is_text()` are the right way
+  to check for the inline text node.
+- Text content lives ONLY on `#text` nodes. Regular elements get an
+  empty payload — `post_add_element`/`patch_element` enforce this and
+  the renderer drops `payload.text` for non-text tags.
+
+### Undo/redo
+
+`create_page` takes a baseline snapshot so the first edit can be undone
+back to the just-created state. Mutating handlers call `snapshot_page`
+*after* their write — the snapshot represents the post-state, and undo
+walks `seq < cursor` to find the previous post-state. New edits after
+an undo truncate the redo branch.
+
+### Selection after add
+
+Element-creation handlers emit `HX-Trigger: {"lovely:select":{"id":
+"...","focus":""|"text"}}` (no `preview-stale` — that races the asides'
+initial-render hx-get URLs). The `lovely:select` JS handler updates the
+asides' static hx-get URLs to `?sel=NEW`, runs `htmx.process`, swaps
+inspector + tree to the new selection, and triggers `preview-stale` on
+the canvas for an inline re-render. For #text additions, focus the
+content textarea once it's in the DOM.
 
 ### Multi-step resource creation
 

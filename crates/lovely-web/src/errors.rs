@@ -39,9 +39,7 @@ impl IntoResponse for WebError {
             WebError::Unauthorized => htmx_aware_redirect("/auth/login"),
             WebError::Forbidden => (StatusCode::FORBIDDEN, "Forbidden").into_response(),
             WebError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg).into_response(),
-            WebError::Unprocessable(msg) => {
-                (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response()
-            }
+            WebError::Unprocessable(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response(),
             WebError::Csrf => (StatusCode::FORBIDDEN, "CSRF").into_response(),
             WebError::Db(e) => {
                 tracing::error!(error = %e, "db error");

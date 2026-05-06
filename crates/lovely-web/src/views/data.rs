@@ -3,12 +3,7 @@ use crate::views::{shell, ShellCtx};
 use lovely_db::{App, Collection, FieldType, Record, User};
 use maud::{html, Markup, PreEscaped};
 
-pub fn data_index(
-    user: &User,
-    app: &App,
-    collections: &[Collection],
-    csrf_token: &str,
-) -> Markup {
+pub fn data_index(user: &User, app: &App, collections: &[Collection], csrf_token: &str) -> Markup {
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
@@ -52,12 +47,7 @@ pub fn data_index(
     )
 }
 
-pub fn collection_new(
-    user: &User,
-    app: &App,
-    csrf_token: &str,
-    error: Option<&str>,
-) -> Markup {
+pub fn collection_new(user: &User, app: &App, csrf_token: &str, error: Option<&str>) -> Markup {
     let body = html! {
         nav .breadcrumbs {
             a href="/apps" { "Apps" } " / "
@@ -195,12 +185,7 @@ pub fn collection_view(
 /// rename/delete + add-field with a type picker). Fields are typed
 /// objects; the schema list drives which keys + input shapes the
 /// record form renders.
-pub fn collection_edit(
-    user: &User,
-    app: &App,
-    coll: &Collection,
-    csrf_token: &str,
-) -> Markup {
+pub fn collection_edit(user: &User, app: &App, coll: &Collection, csrf_token: &str) -> Markup {
     let typed = coll.typed_fields();
     let body = html! {
         nav .breadcrumbs {

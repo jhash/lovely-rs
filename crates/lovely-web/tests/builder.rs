@@ -215,11 +215,10 @@ async fn phase3_patch_text_returns_hx_trigger_preview_stale() {
         .send()
         .await
         .unwrap();
-    let txt: uuid::Uuid =
-        sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let txt: uuid::Uuid = sqlx::query_scalar("SELECT id FROM elements WHERE tag = '#text' LIMIT 1")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
 
     let token = app.csrf_token().await.unwrap();
     let r = app
@@ -458,15 +457,16 @@ async fn phase6_move_child_to_new_parent() {
     for _ in 0..2 {
         let r = app
             .client
-            .post(format!(
-                "{}/apps/personal/pages/about/elements",
-                app.url
-            ))
+            .post(format!("{}/apps/personal/pages/about/elements", app.url))
             .form(&[("tag", "p"), ("text", "x"), ("_csrf", &token)])
             .send()
             .await
             .unwrap();
-        assert!(r.status().is_redirection() || r.status() == 200, "{}", r.status());
+        assert!(
+            r.status().is_redirection() || r.status() == 200,
+            "{}",
+            r.status()
+        );
     }
     let kids: Vec<uuid::Uuid> =
         sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 ORDER BY created_at ASC")
@@ -493,9 +493,7 @@ async fn phase6_move_child_to_new_parent() {
         .unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(
-        r.headers()
-            .get("HX-Trigger")
-            .map(|v| v.to_str().unwrap()),
+        r.headers().get("HX-Trigger").map(|v| v.to_str().unwrap()),
         Some("preview-stale")
     );
 

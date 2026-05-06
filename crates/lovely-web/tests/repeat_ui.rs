@@ -46,12 +46,11 @@ async fn inspector_shows_repeat_section_for_non_leaf_elements_with_collections()
         .unwrap();
 
     // Inspect the home page's root element (a div, non-leaf).
-    let root: uuid::Uuid = sqlx::query_scalar(
-        "SELECT root_element FROM pages WHERE slug = '' LIMIT 1",
-    )
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let root: uuid::Uuid =
+        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = '' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
 
     let r = app
         .client
@@ -92,12 +91,11 @@ async fn patching_repeat_collection_persists_attribute() {
         .await
         .unwrap();
 
-    let root: uuid::Uuid = sqlx::query_scalar(
-        "SELECT root_element FROM pages WHERE slug = '' LIMIT 1",
-    )
-    .fetch_one(&app.pg)
-    .await
-    .unwrap();
+    let root: uuid::Uuid =
+        sqlx::query_scalar("SELECT root_element FROM pages WHERE slug = '' LIMIT 1")
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
 
     let token = app.csrf_token().await.unwrap();
     let r = app
@@ -112,12 +110,11 @@ async fn patching_repeat_collection_persists_attribute() {
         .unwrap();
     assert_eq!(r.status(), 200);
 
-    let attrs: serde_json::Value =
-        sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
-            .bind(root)
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let attrs: serde_json::Value = sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+        .bind(root)
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert_eq!(
         attrs.get("data-lovely-repeat").and_then(|v| v.as_str()),
         Some("posts"),
@@ -136,12 +133,11 @@ async fn patching_repeat_collection_persists_attribute() {
         .send()
         .await
         .unwrap();
-    let attrs: serde_json::Value =
-        sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
-            .bind(root)
-            .fetch_one(&app.pg)
-            .await
-            .unwrap();
+    let attrs: serde_json::Value = sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+        .bind(root)
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
     assert!(
         attrs.get("data-lovely-repeat").is_none(),
         "repeat attr should be cleared: {attrs}"

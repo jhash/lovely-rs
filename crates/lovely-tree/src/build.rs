@@ -328,7 +328,7 @@ mod tests {
         let rows = vec![
             row(r, None, None, "div"),
             row(a, Some(r), None, "div"),
-            row(b, Some(r), Some(a), "p"),       // chain: a -> b
+            row(b, Some(r), Some(a), "p"),        // chain: a -> b
             row(c, Some(r), Some(a), "textarea"), // dup: also claims prev=a
         ];
         let tree = Tree::from_db_rows(&rows).expect("should not error on dup prev_sibling");

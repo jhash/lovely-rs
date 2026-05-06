@@ -1,11 +1,11 @@
 pub mod apps;
 pub mod collections;
 pub mod elements;
-pub mod revisions;
 pub mod errors;
 pub mod oauth;
 pub mod pages;
 pub mod pg;
+pub mod revisions;
 pub mod sessions;
 pub mod sqlite_store;
 pub mod users;
@@ -17,9 +17,8 @@ pub use apps::{
     NewApp,
 };
 pub use collections::{
-    create_collection, delete_collection, delete_record, find_collection_by_name,
-    insert_record, list_collections, list_records, rename_collection, Collection, Field,
-    FieldType, Record,
+    create_collection, delete_collection, delete_record, find_collection_by_name, insert_record,
+    list_collections, list_records, rename_collection, Collection, Field, FieldType, Record,
 };
 pub use elements::{
     delete_element, insert_element, load_elements_for_page, update_element, ElementDbRow,
@@ -39,6 +38,6 @@ pub use sessions::{
 };
 pub use sqlite_store::{AppId, SqliteAppStore, StubSqliteAppStore};
 pub use users::{
-    create_user, find_user_by_id, find_user_by_username, set_user_public_published, NewUser,
-    User, UserRole,
+    create_user, find_user_by_id, find_user_by_username, set_user_public_published, NewUser, User,
+    UserRole,
 };
