@@ -518,3 +518,201 @@ async fn phase6_move_child_to_new_parent() {
             .unwrap();
     assert_eq!(new_parent, Some(a));
 }
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn move_element_reorders_in_canvas_render() {
+    // Drag-drop must show in the rendered canvas, not just the tree
+    // sidebar. post_move_element runs three coordinated UPDATEs to keep
+    // the prev_sibling chain consistent (close old hole / open new hole
+    // / move the row); a partial fix would let order_siblings salvage
+    // by uuid, which would silently re-sort the canvas.
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    let (_page, root) = fixture(&app).await.unwrap();
+
+    async fn add_child(app: &TestApp, root: uuid::Uuid, tag: &str) -> uuid::Uuid {
+        let token = app.csrf_token().await.unwrap();
+        let r = app
+            .client
+            .post(format!("{}/apps/personal/pages/about/elements", app.url))
+            .header("HX-Request", "true")
+            .form(&[
+                ("tag", tag),
+                ("parent_id", root.to_string().as_str()),
+                ("_csrf", &token),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "add_child {tag}: {}", r.status());
+        sqlx::query_scalar(
+            "SELECT id FROM elements WHERE parent_id = $1 AND tag = $2 \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(root)
+        .bind(tag)
+        .fetch_one(&app.pg)
+        .await
+        .unwrap()
+    }
+    async fn canvas(app: &TestApp) -> String {
+        app.client
+            .get(format!("{}/apps/personal/pages/about/canvas", app.url))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    }
+    async fn move_to(app: &TestApp, id: uuid::Uuid, parent: uuid::Uuid, prev: &str) {
+        let token = app.csrf_token().await.unwrap();
+        let r = app
+            .client
+            .post(format!(
+                "{}/apps/personal/pages/about/elements/{id}/move",
+                app.url
+            ))
+            .form(&[
+                ("parent_id", parent.to_string().as_str()),
+                ("prev_sibling", prev),
+                ("_csrf", &token),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "move {id}: {}", r.status());
+    }
+
+    let h1 = add_child(&app, root, "h1").await;
+    let h2 = add_child(&app, root, "h2").await;
+    let h3 = add_child(&app, root, "h3").await;
+
+    let body = canvas(&app).await;
+    let i1 = body.find("<h1>").expect("h1");
+    let i2 = body.find("<h2>").expect("h2");
+    let i3 = body.find("<h3>").expect("h3");
+    assert!(i1 < i2 && i2 < i3, "initial order is h1, h2, h3");
+
+    move_to(&app, h3, root, "").await; // h3 becomes first child
+    move_to(&app, h2, root, h3.to_string().as_str()).await; // h2 between h3 and h1
+
+    let body = canvas(&app).await;
+    let i1 = body.find("<h1>").expect("h1");
+    let i2 = body.find("<h2>").expect("h2");
+    let i3 = body.find("<h3>").expect("h3");
+    assert!(
+        i3 < i2 && i2 < i1,
+        "after moves canvas order should be h3, h2, h1; body=\n{body}"
+    );
+    let _ = h1;
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn href_edits_on_anchor_render_in_canvas() {
+    // Edit `href` on an `<a>` and confirm it lands in the rendered
+    // canvas. Sister test to phase4_patch_attr_persists_and_renders,
+    // but specifically guards against the dedicated `href` field
+    // breaking — the form input had been `type="url"`, which silently
+    // refused to submit relative paths.
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    let (_page, root) = fixture(&app).await.unwrap();
+
+    let token = app.csrf_token().await.unwrap();
+    let r = app
+        .client
+        .post(format!("{}/apps/personal/pages/about/elements", app.url))
+        .header("HX-Request", "true")
+        .form(&[
+            ("tag", "a"),
+            ("parent_id", root.to_string().as_str()),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let a_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM elements WHERE parent_id = $1 AND tag = 'a'")
+            .bind(root)
+            .fetch_one(&app.pg)
+            .await
+            .unwrap();
+
+    let token = app.csrf_token().await.unwrap();
+    let r = app
+        .client
+        .patch(format!(
+            "{}/apps/personal/pages/about/elements/{a_id}",
+            app.url
+        ))
+        .form(&[
+            ("attr_name", "href"),
+            ("attr_value", "https://example.com"),
+            ("_csrf", &token),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let attrs: serde_json::Value = sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+        .bind(a_id)
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
+    assert_eq!(
+        attrs.get("href").and_then(|v| v.as_str()),
+        Some("https://example.com"),
+    );
+
+    let body = app
+        .client
+        .get(format!("{}/apps/personal/pages/about/canvas", app.url))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        body.contains(r#"href="https://example.com""#),
+        "canvas should render href: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn top_level_element_inspector_exposes_add_before_after() {
+    // The "root" concept was retired: every element gets the same
+    // sibling actions regardless of whether its parent is NULL.
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    let (_page, root) = fixture(&app).await.unwrap();
+
+    let r = app
+        .client
+        .get(format!(
+            "{}/apps/personal/pages/about/inspector?sel={root}",
+            app.url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body = r.text().await.unwrap();
+    assert!(
+        body.contains("Add before"),
+        "top-level row should expose Add before: {body}"
+    );
+    assert!(
+        body.contains("Add after"),
+        "top-level row should expose Add after"
+    );
+}
