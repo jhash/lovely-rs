@@ -71,10 +71,8 @@ impl TestApp {
             .unwrap()
             .join("static");
         let schema = Arc::new(SchemaService::new(pg.clone()));
-        let app_store: Arc<dyn lovely_db::SqliteAppStore> = Arc::new(LocalSqliteAppStore::new(
-            data_dir.path(),
-            schema.clone(),
-        )?);
+        let app_store: Arc<dyn lovely_db::SqliteAppStore> =
+            Arc::new(LocalSqliteAppStore::new(data_dir.path(), schema.clone())?);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let url = format!("http://127.0.0.1:{}", addr.port());

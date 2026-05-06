@@ -1148,3 +1148,39 @@ li[aria-current="true"] > .tree-row > .tree-row-button {
     grid-template-columns: 1fr;
   }
 }
+
+/* SQL console result table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  margin-top: 1rem;
+}
+.data-table th,
+.data-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.data-table thead th {
+  background: var(--surface-muted, #f7f7f7);
+  font-weight: 600;
+}
+
+/* Schema history audit list */
+.schema-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+}
+.schema-history li {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.schema-history li:last-child {
+  border-bottom: none;
+}

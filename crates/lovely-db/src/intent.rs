@@ -20,13 +20,72 @@ use crate::errors::DbError;
 /// blocking the common ones turns user typos into a clean error rather
 /// than a confusing SQL parse failure mid-migration.
 const RESERVED: &[&str] = &[
-    "select", "from", "where", "table", "index", "drop", "create", "insert", "update", "delete",
-    "alter", "rename", "column", "primary", "foreign", "key", "unique", "constraint", "join",
-    "inner", "outer", "left", "right", "on", "and", "or", "not", "null", "default", "values",
-    "into", "set", "begin", "commit", "rollback", "transaction", "savepoint", "release", "with",
-    "as", "by", "order", "group", "having", "limit", "offset", "case", "when", "then", "else",
-    "end", "exists", "in", "between", "like", "is", "all", "any", "distinct", "having", "union",
-    "intersect", "except", "view", "trigger", "if",
+    "select",
+    "from",
+    "where",
+    "table",
+    "index",
+    "drop",
+    "create",
+    "insert",
+    "update",
+    "delete",
+    "alter",
+    "rename",
+    "column",
+    "primary",
+    "foreign",
+    "key",
+    "unique",
+    "constraint",
+    "join",
+    "inner",
+    "outer",
+    "left",
+    "right",
+    "on",
+    "and",
+    "or",
+    "not",
+    "null",
+    "default",
+    "values",
+    "into",
+    "set",
+    "begin",
+    "commit",
+    "rollback",
+    "transaction",
+    "savepoint",
+    "release",
+    "with",
+    "as",
+    "by",
+    "order",
+    "group",
+    "having",
+    "limit",
+    "offset",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "exists",
+    "in",
+    "between",
+    "like",
+    "is",
+    "all",
+    "any",
+    "distinct",
+    "having",
+    "union",
+    "intersect",
+    "except",
+    "view",
+    "trigger",
+    "if",
 ];
 
 /// A validated SQL identifier. Construct via [`Identifier::new`].
@@ -270,7 +329,10 @@ impl Intent {
             }
             Intent::DropTable { name } => (format!("DROP TABLE \"{name}\""), None),
             Intent::AddColumn { table, column } => (
-                format!("ALTER TABLE \"{table}\" ADD COLUMN {}", column.render_sqlite()),
+                format!(
+                    "ALTER TABLE \"{table}\" ADD COLUMN {}",
+                    column.render_sqlite()
+                ),
                 Some(format!(
                     "ALTER TABLE \"{table}\" DROP COLUMN \"{}\"",
                     column.name
@@ -356,10 +418,7 @@ mod tests {
             "name--",
             "x; drop table users",
         ] {
-            assert!(
-                Identifier::new(bad).is_err(),
-                "expected reject for {bad:?}"
-            );
+            assert!(Identifier::new(bad).is_err(), "expected reject for {bad:?}");
         }
     }
 
@@ -458,10 +517,7 @@ mod tests {
             column: ident("body"),
         };
         let ddl = intent.render_sqlite().unwrap();
-        assert_eq!(
-            ddl.forward,
-            r#"ALTER TABLE "posts" DROP COLUMN "body""#
-        );
+        assert_eq!(ddl.forward, r#"ALTER TABLE "posts" DROP COLUMN "body""#);
         assert!(ddl.reverse.is_none());
     }
 

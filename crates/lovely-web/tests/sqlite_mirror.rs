@@ -196,7 +196,10 @@ async fn data_index_shows_schema_history() {
     let body = r.text().await.unwrap();
     assert!(body.contains("Schema history"), "missing audit section");
     assert!(body.contains("create table"), "missing create-table entry");
-    assert!(body.contains("add `posts.title`"), "missing add-column entry");
+    assert!(
+        body.contains("add `posts.title`"),
+        "missing add-column entry"
+    );
 }
 
 #[tokio::test]

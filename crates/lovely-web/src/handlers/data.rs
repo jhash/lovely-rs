@@ -66,8 +66,8 @@ pub async fn post_collection_create(
     let app = find_app_by_owner_and_slug(&state.pg, user.id, &app_slug)
         .await?
         .ok_or(WebError::NotFound)?;
-    let table_name = Identifier::new(&form.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let table_name =
+        Identifier::new(&form.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     create_collection(&state.pg, app.id, &form.name, &[] as &[lovely_db::Field]).await?;
     // Mirror to the per-app SQLite by recording an intent. The collection
     // table starts with just an `id` column — fields show up as
@@ -134,10 +134,10 @@ pub async fn post_field_add(
     let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
         .await?
         .ok_or(WebError::NotFound)?;
-    let column_name = Identifier::new(&form.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
-    let table_name = Identifier::new(&coll.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let column_name =
+        Identifier::new(&form.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let table_name =
+        Identifier::new(&coll.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     let mut fields = coll.typed_fields();
     if fields.iter().any(|f| f.name == form.name) {
         return Err(WebError::Unprocessable(format!(
@@ -197,10 +197,10 @@ pub async fn post_collection_rename(
     let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
         .await?
         .ok_or(WebError::NotFound)?;
-    let new_table = Identifier::new(&form.new_name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
-    let old_table = Identifier::new(&coll.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let new_table =
+        Identifier::new(&form.new_name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let old_table =
+        Identifier::new(&coll.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     if form.new_name == coll.name {
         return Ok(
             Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response(),
@@ -266,12 +266,12 @@ pub async fn post_field_rename(
     let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
         .await?
         .ok_or(WebError::NotFound)?;
-    let to_col = Identifier::new(&form.new_name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
-    let from_col = Identifier::new(&field_name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
-    let table = Identifier::new(&coll.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let to_col =
+        Identifier::new(&form.new_name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let from_col =
+        Identifier::new(&field_name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let table =
+        Identifier::new(&coll.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     if form.new_name == field_name {
         return Ok(
             Redirect::to(&format!("/apps/{}/data/{}/edit", app.slug, coll.name)).into_response(),
@@ -308,10 +308,10 @@ pub async fn post_field_delete(
     let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
         .await?
         .ok_or(WebError::NotFound)?;
-    let table = Identifier::new(&coll.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
-    let column = Identifier::new(&field_name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let table =
+        Identifier::new(&coll.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let column =
+        Identifier::new(&field_name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     lovely_db::collections::delete_field(&state.pg, coll.id, &field_name).await?;
     state
         .schema
@@ -353,8 +353,8 @@ pub async fn post_collection_delete(
     let coll = find_collection_by_name(&state.pg, app.id, &coll_name)
         .await?
         .ok_or(WebError::NotFound)?;
-    let table = Identifier::new(&coll.name)
-        .map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
+    let table =
+        Identifier::new(&coll.name).map_err(|_| WebError::Unprocessable(IDENT_HELP.into()))?;
     delete_collection(&state.pg, coll.id).await?;
     state
         .schema
@@ -393,8 +393,7 @@ pub async fn post_record_create(
             mirror_fields.push((f, v.clone()));
         }
     }
-    let inserted =
-        insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    let inserted = insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
     mirror_record_insert(&state, app.id, &coll.name, inserted.id, &mirror_fields).await;
     Ok(Redirect::to(&format!("/apps/{}/data/{}", app.slug, coll.name)).into_response())
 }
@@ -477,8 +476,7 @@ pub async fn post_public_submit(
             mirror_fields.push((f, v.clone()));
         }
     }
-    let inserted =
-        insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    let inserted = insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
     mirror_record_insert(&state, app.id, &coll.name, inserted.id, &mirror_fields).await;
     let redirect = if real_slug.is_empty() {
         format!("/{username}")
@@ -554,7 +552,9 @@ async fn run_console_query(
         .unwrap_or("")
         .to_ascii_lowercase();
     if !matches!(head.as_str(), "select" | "with" | "explain" | "pragma") {
-        return Err(format!("only SELECT / WITH / EXPLAIN / PRAGMA are allowed, got `{head}`"));
+        return Err(format!(
+            "only SELECT / WITH / EXPLAIN / PRAGMA are allowed, got `{head}`"
+        ));
     }
     if trimmed.contains(';') {
         return Err("multiple statements are not allowed".into());
@@ -628,8 +628,8 @@ async fn mirror_record_insert(
     record_id: uuid::Uuid,
     fields: &[(String, String)],
 ) {
-    if let Err(e) = mirror_record_insert_inner(state, app_id, collection_name, record_id, fields)
-        .await
+    if let Err(e) =
+        mirror_record_insert_inner(state, app_id, collection_name, record_id, fields).await
     {
         tracing::warn!(
             error = %e,

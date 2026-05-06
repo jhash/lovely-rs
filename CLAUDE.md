@@ -136,6 +136,51 @@ So: collection create asks for name only, then lands on
 one at a time. Don't take a comma-separated list for what should be a
 configurable structure.
 
+## Per-app SQLite (milestone C)
+
+### Identifier safety
+
+Any user-supplied name that ends up in a DDL string (collection name,
+field name) MUST go through `lovely_db::Identifier::new`. The newtype
+enforces:
+
+- 1–63 bytes;
+- lowercase ASCII letters, digits, underscores;
+- leading char is letter or underscore;
+- not a SQL reserved word (`select`, `where`, `when`, …);
+- not the `_lovely` internal namespace.
+
+The DDL renderer splats `Identifier` values straight into format
+strings — never re-validate by hand, never accept `&str` instead.
+
+### Intent log + SchemaService
+
+Postgres `app_schema_migrations` is the source of truth. Every
+collection / field create / rename / delete records an `Intent` row
+via `SchemaService::record(app_id, user, intent)` AFTER the Postgres
+mirror write succeeds (sequential — failure leaves an orphaned but
+harmless intent row at worst).
+
+`SchemaService::ensure_migrated(app_id, sqlite)` is idempotent and
+runs implicitly on every `LocalSqliteAppStore::get_pool` call. Per-app
+`tokio::Mutex` + a SQLite-side `_lovely_schema_version` pointer make
+double-apply impossible across processes.
+
+### Record dual-write
+
+`post_record_create` + `post_public_submit` write to Postgres first
+(authoritative), then best-effort mirror the row into SQLite via
+`mirror_record_insert`. Failures are logged + swallowed so the user
+flow doesn't break. The renderer still reads from Postgres records;
+SQLite is the staging substrate for the future cutover.
+
+### SQL console
+
+`/apps/{slug}/data/console` runs read-only `SELECT/WITH/EXPLAIN/PRAGMA`
+against the per-app SQLite. Multi-statement is rejected. Results capped
+at 100 rows. Anything that needs to mutate user data must go through a
+typed handler — never SQL.
+
 ## Testing
 
 Red-then-green per phase. Red tests are scaffolding; resist editing

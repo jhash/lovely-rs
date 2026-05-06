@@ -82,7 +82,10 @@ async fn select_returns_table_of_rows() {
     let r = app
         .client
         .post(format!("{}/apps/personal/data/console", app.url))
-        .form(&[("sql", "SELECT title FROM posts ORDER BY title"), ("_csrf", &token)])
+        .form(&[
+            ("sql", "SELECT title FROM posts ORDER BY title"),
+            ("_csrf", &token),
+        ])
         .send()
         .await
         .unwrap();

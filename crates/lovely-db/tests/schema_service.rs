@@ -88,11 +88,10 @@ async fn record_then_ensure_creates_table_in_sqlite() {
         .execute(&sqlite)
         .await
         .unwrap();
-    let title: String =
-        sqlx::query_scalar("SELECT title FROM posts WHERE title = 'hello'")
-            .fetch_one(&sqlite)
-            .await
-            .unwrap();
+    let title: String = sqlx::query_scalar("SELECT title FROM posts WHERE title = 'hello'")
+        .fetch_one(&sqlite)
+        .await
+        .unwrap();
     assert_eq!(title, "hello");
 }
 
@@ -184,7 +183,9 @@ async fn add_column_then_drop_column_round_trip() {
     svc.ensure_migrated(app_id, &sqlite).await.unwrap();
 
     // The body column should be gone — selecting it must error.
-    let r = sqlx::query("SELECT body FROM posts").fetch_all(&sqlite).await;
+    let r = sqlx::query("SELECT body FROM posts")
+        .fetch_all(&sqlite)
+        .await;
     assert!(r.is_err(), "body column should have been dropped");
 }
 

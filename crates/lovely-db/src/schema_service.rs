@@ -62,9 +62,8 @@ impl SchemaService {
         intent: Intent,
     ) -> Result<MigrationVersion, DbError> {
         let ddl = intent.render_sqlite()?;
-        let intent_json = serde_json::to_value(&intent).map_err(|e| {
-            DbError::SchemaConflict(format!("intent serialize: {e}"))
-        })?;
+        let intent_json = serde_json::to_value(&intent)
+            .map_err(|e| DbError::SchemaConflict(format!("intent serialize: {e}")))?;
 
         let mut tx = self.pg.begin().await?;
 
@@ -109,11 +108,7 @@ impl SchemaService {
     /// Apply any pending migrations for `app_id` to the given SQLite
     /// pool. Idempotent: calling repeatedly is cheap (one SELECT to
     /// the version pointer + an empty pending list).
-    pub async fn ensure_migrated(
-        &self,
-        app_id: AppId,
-        sqlite: &SqlitePool,
-    ) -> Result<(), DbError> {
+    pub async fn ensure_migrated(&self, app_id: AppId, sqlite: &SqlitePool) -> Result<(), DbError> {
         let lock = self.lock_for(app_id);
         let _guard = lock.lock().await;
 
@@ -178,27 +173,21 @@ async fn ensure_version_table(sqlite: &SqlitePool) -> Result<(), DbError> {
 }
 
 async fn read_applied_version(sqlite: &SqlitePool) -> Result<i64, DbError> {
-    let v: i64 = sqlx::query_scalar(
-        "SELECT applied_version FROM _lovely_schema_version WHERE rowid = 1",
-    )
-    .fetch_one(sqlite)
-    .await?;
+    let v: i64 =
+        sqlx::query_scalar("SELECT applied_version FROM _lovely_schema_version WHERE rowid = 1")
+            .fetch_one(sqlite)
+            .await?;
     Ok(v)
 }
 
-async fn apply_one(
-    sqlite: &SqlitePool,
-    version: i64,
-    forward_sql: &str,
-) -> Result<(), DbError> {
+async fn apply_one(sqlite: &SqlitePool, version: i64, forward_sql: &str) -> Result<(), DbError> {
     let mut tx = sqlite.begin().await?;
     // Re-read the version pointer inside the txn — guards against a
     // racing process that already applied this migration.
-    let current: i64 = sqlx::query_scalar(
-        "SELECT applied_version FROM _lovely_schema_version WHERE rowid = 1",
-    )
-    .fetch_one(&mut *tx)
-    .await?;
+    let current: i64 =
+        sqlx::query_scalar("SELECT applied_version FROM _lovely_schema_version WHERE rowid = 1")
+            .fetch_one(&mut *tx)
+            .await?;
     if current >= version {
         // Another process beat us to it. No-op.
         return Ok(());
