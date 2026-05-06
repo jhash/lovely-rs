@@ -310,7 +310,11 @@ async fn phase5_preview_route_is_owner_only() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn phase4_attrs_tab_lists_existing_attrs() {
+async fn phase4_attrs_tab_omits_freeform_other_section() {
+    // The freeform "Other attributes" section was retired (XSS risk
+    // until proper validation + multi-row UI lands). The Attributes
+    // tab now lists only tag-specific affordances. For a `<div>`
+    // there's nothing to surface — the empty-state copy applies.
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
     let app = TestApp::start_with_pool(pool).await.unwrap();
@@ -334,8 +338,10 @@ async fn phase4_attrs_tab_lists_existing_attrs() {
         .unwrap();
     assert_eq!(r.status(), 200);
     let body = r.text().await.unwrap();
-    assert!(body.contains("hero"), "attrs tab should show class=hero");
-    assert!(body.contains("top"), "attrs tab should show id=top");
+    assert!(
+        !body.contains("Other attributes"),
+        "Other attributes is hidden until the editor returns: {body}"
+    );
 }
 
 #[tokio::test]
@@ -453,12 +459,19 @@ async fn phase6_move_child_to_new_parent() {
     let (_page, root) = fixture(&app).await.unwrap();
 
     // Add two children to root, then move the second under the first.
+    // With the explicit-parent model, omitting parent_id means
+    // top-level — pass it explicitly here.
     let token = app.csrf_token().await.unwrap();
     for _ in 0..2 {
         let r = app
             .client
             .post(format!("{}/apps/personal/pages/about/elements", app.url))
-            .form(&[("tag", "p"), ("text", "x"), ("_csrf", &token)])
+            .form(&[
+                ("tag", "p"),
+                ("text", "x"),
+                ("parent_id", root.to_string().as_str()),
+                ("_csrf", &token),
+            ])
             .send()
             .await
             .unwrap();

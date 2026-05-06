@@ -468,7 +468,11 @@ async fn step_revision(
 
 #[derive(Deserialize, Default)]
 pub struct MoveElementForm {
-    pub parent_id: Uuid,
+    /// New parent uuid; empty string means "top level" (parent IS NULL).
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// New left-sibling uuid; empty / absent means "first child of
+    /// new parent".
     #[serde(default)]
     pub prev_sibling: Option<String>,
     #[serde(default)]
@@ -495,21 +499,38 @@ pub async fn post_move_element(
         return Err(WebError::Forbidden);
     }
 
-    // Element must belong to this page.
-    let owns: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM elements WHERE id = $1 AND page_id = $2")
-            .bind(element_id)
-            .bind(page.id)
-            .fetch_optional(&state.pg)
-            .await
-            .map_err(lovely_db::DbError::Sqlx)?;
-    if owns.is_none() {
-        return Err(WebError::NotFound);
-    }
+    let parent_id: Option<Uuid> = form
+        .parent_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(Uuid::parse_str)
+        .transpose()
+        .map_err(|_| WebError::BadRequest("invalid parent_id".into()))?;
+    let new_prev: Option<Uuid> = form
+        .prev_sibling
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(Uuid::parse_str)
+        .transpose()
+        .map_err(|_| WebError::BadRequest("invalid prev_sibling".into()))?;
 
-    // Cycle check: walking parent_id chain from form.parent_id back up
+    // Element must belong to this page; capture its current location so
+    // we can repair the chain it leaves behind.
+    let current: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT parent_id, prev_sibling FROM elements WHERE id = $1 AND page_id = $2",
+    )
+    .bind(element_id)
+    .bind(page.id)
+    .fetch_optional(&state.pg)
+    .await
+    .map_err(lovely_db::DbError::Sqlx)?;
+    let Some((old_parent, old_prev)) = current else {
+        return Err(WebError::NotFound);
+    };
+
+    // Cycle check: walking parent_id chain from the new parent back up
     // must never hit element_id.
-    let mut cursor = Some(form.parent_id);
+    let mut cursor = parent_id;
     while let Some(p) = cursor {
         if p == element_id {
             return Err(WebError::Unprocessable(
@@ -529,24 +550,52 @@ pub async fn post_move_element(
         }
     }
 
-    let prev_sibling = form
-        .prev_sibling
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(Uuid::parse_str)
-        .transpose()
-        .map_err(|_| WebError::BadRequest("invalid prev_sibling".into()))?;
-
+    // Three writes inside one transaction so the prev_sibling chain
+    // stays consistent:
+    //   1. Close the old hole — whoever pointed to `element_id` as
+    //      their prev_sibling now points to `old_prev`.
+    //   2. Open the new hole — whoever in the new parent pointed to
+    //      `new_prev` as their prev_sibling now points to `element_id`
+    //      (skipping `element_id` itself).
+    //   3. Move `element_id` to its new (parent, prev) coordinates.
+    let mut tx = state.pg.begin().await.map_err(lovely_db::DbError::Sqlx)?;
+    sqlx::query(
+        "UPDATE elements SET prev_sibling = $1, updated_at = now() \
+         WHERE page_id = $2 AND id != $3 \
+           AND parent_id IS NOT DISTINCT FROM $4 \
+           AND prev_sibling = $3",
+    )
+    .bind(old_prev)
+    .bind(page.id)
+    .bind(element_id)
+    .bind(old_parent)
+    .execute(&mut *tx)
+    .await
+    .map_err(lovely_db::DbError::Sqlx)?;
+    sqlx::query(
+        "UPDATE elements SET prev_sibling = $1, updated_at = now() \
+         WHERE page_id = $2 AND id != $1 \
+           AND parent_id IS NOT DISTINCT FROM $3 \
+           AND prev_sibling IS NOT DISTINCT FROM $4",
+    )
+    .bind(element_id)
+    .bind(page.id)
+    .bind(parent_id)
+    .bind(new_prev)
+    .execute(&mut *tx)
+    .await
+    .map_err(lovely_db::DbError::Sqlx)?;
     sqlx::query(
         "UPDATE elements SET parent_id = $2, prev_sibling = $3, updated_at = now() \
          WHERE id = $1",
     )
     .bind(element_id)
-    .bind(form.parent_id)
-    .bind(prev_sibling)
-    .execute(&state.pg)
+    .bind(parent_id)
+    .bind(new_prev)
+    .execute(&mut *tx)
     .await
     .map_err(lovely_db::DbError::Sqlx)?;
+    tx.commit().await.map_err(lovely_db::DbError::Sqlx)?;
     lovely_db::snapshot_page(&state.pg, page.id).await?;
 
     let mut headers = HeaderMap::new();

@@ -37,26 +37,33 @@ fn render_iter(tree: &Tree, root: NodeId, out: &mut String) {
                     }
                     continue;
                 }
-                let tag = node.tag.name();
-                out.push('<');
-                out.push_str(tag);
-                for (name, value) in node.attrs.iter() {
-                    out.push(' ');
-                    out.push_str(name.as_str());
-                    out.push_str("=\"");
-                    push_escaped(value, out);
-                    out.push('"');
+                // #body is the synthetic root that always wraps a
+                // page's element list. Emit children only — no
+                // open/close tag — so the rendered HTML carries
+                // exactly the structure the user authored.
+                let is_body = matches!(node.tag, ElementTag::Body);
+                if !is_body {
+                    let tag = node.tag.name();
+                    out.push('<');
+                    out.push_str(tag);
+                    for (name, value) in node.attrs.iter() {
+                        out.push(' ');
+                        out.push_str(name.as_str());
+                        out.push_str("=\"");
+                        push_escaped(value, out);
+                        out.push('"');
+                    }
+                    if is_void(node.tag) {
+                        out.push_str(" />");
+                        continue;
+                    }
+                    out.push('>');
+                    stack.push(Step::Close(tag));
                 }
-                if is_void(node.tag) {
-                    out.push_str(" />");
-                    continue;
-                }
-                out.push('>');
                 // Only `#text` nodes carry text; regular elements use
                 // `#text` children to express their content. We drop
                 // `node.text` here unconditionally (it's already None for
                 // non-Text rows after the DB layer).
-                stack.push(Step::Close(tag));
                 let mut children: Vec<NodeId> = Vec::new();
                 let mut c = node.first_child;
                 while let Some(cid) = c {

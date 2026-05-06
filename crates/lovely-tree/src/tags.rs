@@ -32,6 +32,12 @@ impl ElementTag {
     /// place to land. Pairs with [`ElementTag::is_text`].
     pub const TEXT_NAME: &'static str = "#text";
 
+    /// Canonical name for the synthetic body root that wraps every
+    /// page's element list. Always present — `Tree::from_db_rows`
+    /// builds it in memory; the renderer emits the children only, no
+    /// wrapper tag. Never persisted to the database.
+    pub const BODY_NAME: &'static str = "#body";
+
     /// True for tags that can't have children: void HTML elements,
     /// form-control elements (input, textarea, select), and the inline
     /// `#text` node. Mirrors lovely Swift's leaf-element constraint.
@@ -52,6 +58,11 @@ impl ElementTag {
     pub fn is_text(self) -> bool {
         matches!(self, ElementTag::Text)
     }
+
+    /// Convenience: is this the synthetic `<body>` root wrapper?
+    pub fn is_body(self) -> bool {
+        matches!(self, ElementTag::Body)
+    }
 }
 
 /// Helper for callers holding a `&str` tag (db rows, form fields). True
@@ -60,11 +71,21 @@ pub fn is_text_tag(s: &str) -> bool {
     s == ElementTag::TEXT_NAME
 }
 
+/// Helper for callers holding a `&str` tag. True for the synthetic
+/// `<body>` root wrapper.
+pub fn is_body_tag(s: &str) -> bool {
+    s == ElementTag::BODY_NAME
+}
+
 define_tags! {
     // Inline text node — no wrapping element. Renders just the
     // (escaped) `text` payload. Lets authors mix loose text in among
     // their elements: `<p>read <a/> the docs</p>`.
     Text => "#text",
+    // Synthetic body root. Always wraps the page's element list at
+    // render time. Renders only its children, no own tag. Never
+    // persisted to the database.
+    Body => "#body",
     Div => "div", Section => "section", Article => "article",
     Header => "header", Footer => "footer", Nav => "nav",
     Main => "main", Aside => "aside",

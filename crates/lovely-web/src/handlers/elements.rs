@@ -70,11 +70,11 @@ pub async fn post_add_element(
     if ElementTag::from_name(&form.tag).is_none() {
         return Err(WebError::BadRequest(format!("unknown tag: {}", form.tag)));
     }
-    // Resolve the parent. When the page has no root yet, treat this
-    // call as "create the root" — insert with parent_id=NULL and patch
-    // the page's root_element pointer.
-    let parent_id_opt = form.parent_id.or(page.root_element);
-    if let Some(parent_id) = parent_id_opt {
+    // `parent_id` is optional: omitted means "insert as a new top-level
+    // element" (parent IS NULL). Multiple top-level rows are fine — the
+    // renderer wraps them in a synthetic fragment.
+    let parent_id = form.parent_id;
+    if let Some(parent_id) = parent_id {
         // Refuse if parent is a leaf element (input/textarea/img/br/hr/...).
         let parent_tag: Option<(String,)> =
             sqlx::query_as("SELECT tag FROM elements WHERE id = $1 AND page_id = $2")
@@ -94,9 +94,9 @@ pub async fn post_add_element(
             }
         }
     }
-    let parent_id = parent_id_opt;
-    // Find the current last child of parent_id to set prev_sibling.
-    // (No siblings to chain when we're inserting the new root.)
+    // Find the last sibling at this level (whether top-level or under a
+    // specific parent) so the new row chains onto the end. The shared
+    // pattern handles both cases via the "no successor exists" filter.
     let prev_sibling: Option<(Uuid,)> = if let Some(parent) = parent_id {
         sqlx::query_as(
             "SELECT id FROM elements \
@@ -111,7 +111,17 @@ pub async fn post_add_element(
         .await
         .map_err(lovely_db::DbError::Sqlx)?
     } else {
-        None
+        sqlx::query_as(
+            "SELECT id FROM elements \
+             WHERE page_id = $1 AND parent_id IS NULL \
+             AND NOT EXISTS (SELECT 1 FROM elements e2 \
+                             WHERE e2.page_id = $1 AND e2.parent_id IS NULL \
+                             AND e2.prev_sibling = elements.id)",
+        )
+        .bind(page.id)
+        .fetch_optional(&state.pg)
+        .await
+        .map_err(lovely_db::DbError::Sqlx)?
     };
     // Only `#text` nodes carry text content. Regular elements get an
     // empty payload — text is added later by attaching a `#text` child.
@@ -133,9 +143,10 @@ pub async fn post_add_element(
         },
     )
     .await?;
-    // If this insertion was the first root for the page, update the
-    // page's root_element pointer.
-    if parent_id.is_none() {
+    // Keep page.root_element pointing at *some* top-level row so the
+    // inspector has a sensible default selection when the page loads.
+    // Updates only when the page currently has no pointer set.
+    if parent_id.is_none() && page.root_element.is_none() {
         sqlx::query("UPDATE pages SET root_element = $1, updated_at = now() WHERE id = $2")
             .bind(new_row.id)
             .bind(page.id)
@@ -349,11 +360,7 @@ pub async fn post_wrap_element(
     if page.author_id != user.id {
         return Err(WebError::Forbidden);
     }
-    if Some(target_id) == page.root_element {
-        return Err(WebError::Unprocessable(
-            "cannot wrap the root element".into(),
-        ));
-    }
+    let wrapping_root = Some(target_id) == page.root_element;
     if !is_valid_tag(&form.tag) || lovely_tree::is_text_tag(&form.tag) {
         return Err(WebError::BadRequest(format!(
             "unwrappable tag: {}",
@@ -406,6 +413,15 @@ pub async fn post_wrap_element(
     .execute(&mut *tx)
     .await
     .map_err(lovely_db::DbError::Sqlx)?;
+    // If we just wrapped the root, the wrapper is the new root.
+    if wrapping_root {
+        sqlx::query("UPDATE pages SET root_element = $1, updated_at = now() WHERE id = $2")
+            .bind(wrap_id.0)
+            .bind(page.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
+    }
     tx.commit().await.map_err(lovely_db::DbError::Sqlx)?;
     lovely_db::snapshot_page(&state.pg, page.id).await?;
     if is_htmx {
@@ -504,8 +520,16 @@ pub async fn post_delete_element(
     if page.author_id != user.id {
         return Err(WebError::Forbidden);
     }
+    // Deleting the root is allowed: drop the page.root_element pointer
+    // first so the FK doesn't cascade-delete every descendant before
+    // we get a chance to. The page's "Add root" affordance reappears
+    // automatically when root_element is NULL.
     if Some(element_id) == page.root_element {
-        return Err(WebError::BadRequest("cannot delete root element".into()));
+        sqlx::query("UPDATE pages SET root_element = NULL, updated_at = now() WHERE id = $1")
+            .bind(page.id)
+            .execute(&state.pg)
+            .await
+            .map_err(lovely_db::DbError::Sqlx)?;
     }
     lovely_db::delete_element(&state.pg, element_id).await?;
     lovely_db::snapshot_page(&state.pg, page.id).await?;

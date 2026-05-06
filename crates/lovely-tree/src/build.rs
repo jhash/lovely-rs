@@ -36,29 +36,42 @@ impl Tree {
     /// Validates: exactly one root, no orphan parent_id references, no cycles,
     /// no duplicate uuids, sibling chain is consistent.
     pub fn from_db_rows(rows: &[ElementRow]) -> Result<Self, TreeError> {
-        // Validate uuid uniqueness.
+        // Always synthesize an implicit `#body` root in memory. Every
+        // persisted top-level row (parent_id = NULL) becomes a child
+        // of this synthetic body. Pages with zero, one, or many
+        // top-level elements all take the same code path. The body
+        // is never persisted; the renderer emits its children only,
+        // no wrapper tag.
+        let body_id = ElementUuid::new_v4();
+        let mut synth_rows: Vec<ElementRow> = Vec::with_capacity(rows.len() + 1);
+        synth_rows.push(ElementRow {
+            id: body_id,
+            parent_id: None,
+            prev_sibling: None,
+            tag: ElementTag::BODY_NAME.to_string(),
+            attrs_json: serde_json::Value::Object(Default::default()),
+            text: None,
+        });
+        for r in rows {
+            let mut copy = r.clone();
+            if copy.parent_id.is_none() {
+                copy.parent_id = Some(body_id);
+            }
+            synth_rows.push(copy);
+        }
+        let rows: &[ElementRow] = &synth_rows;
+
+        // Validate uuid uniqueness on the (synthesized) row set.
         let mut by_id: HashMap<ElementUuid, &ElementRow> = HashMap::new();
         for row in rows {
             if by_id.insert(row.id, row).is_some() {
                 return Err(TreeError::DuplicateUuid(row.id));
             }
         }
-
-        // Find unique root.
-        let mut root_row: Option<&ElementRow> = None;
-        for row in rows {
-            if row.parent_id.is_none() {
-                if root_row.is_some() {
-                    return Err(TreeError::MalformedRow(
-                        "multiple rows with parent_id = NULL".into(),
-                    ));
-                }
-                root_row = Some(row);
-            }
-        }
-        let root_row = root_row.ok_or_else(|| {
-            TreeError::MalformedRow("no row with parent_id = NULL (no root)".into())
-        })?;
+        let root_row: &ElementRow = by_id
+            .get(&body_id)
+            .copied()
+            .expect("synthetic body row was just inserted");
 
         // Verify every parent_id references a known row.
         for row in rows {
@@ -260,8 +273,13 @@ mod tests {
             row(a, Some(r), None, "p"),
         ];
         let tree = Tree::from_db_rows(&rows).unwrap();
-        let root_id = tree.root();
-        let kids: Vec<_> = tree.children(root_id).map(|(_, n)| n.uuid).collect();
+        // The synthetic `#body` is the tree root; the persisted "div"
+        // is its only child.
+        let body_id = tree.root();
+        let body_kids: Vec<_> = tree.children(body_id).map(|(_, n)| n.uuid).collect();
+        assert_eq!(body_kids, vec![r]);
+        let r_id = tree.get_by_uuid(r).unwrap();
+        let kids: Vec<_> = tree.children(r_id).map(|(_, n)| n.uuid).collect();
         assert_eq!(kids, vec![a, b]);
         let a_id = tree.get_by_uuid(a).unwrap();
         let a_kids: Vec<_> = tree.children(a_id).map(|(_, n)| n.uuid).collect();
@@ -269,7 +287,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_rows_with_no_root() {
+    fn rejects_rows_with_orphaned_parent_pointers() {
+        // No top-level row, but two rows whose parents point at each
+        // other — the body has no children to start from.
         let a = ElementUuid::new_v4();
         let b = ElementUuid::new_v4();
         let rows = vec![row(a, Some(b), None, "div"), row(b, Some(a), None, "div")];
@@ -278,12 +298,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_rows_with_two_roots() {
+    fn multiple_top_level_rows_become_body_children() {
+        // Both rows have parent_id = NULL — the implicit body wraps
+        // them as siblings, in prev_sibling order.
         let a = ElementUuid::new_v4();
         let b = ElementUuid::new_v4();
-        let rows = vec![row(a, None, None, "div"), row(b, None, None, "div")];
-        let err = Tree::from_db_rows(&rows).unwrap_err();
-        assert!(matches!(err, TreeError::MalformedRow(_)));
+        let rows = vec![row(a, None, None, "div"), row(b, None, Some(a), "p")];
+        let tree = Tree::from_db_rows(&rows).expect("multi-root pages render via body");
+        let body = tree.root();
+        let kids: Vec<_> = tree.children(body).map(|(_, n)| n.uuid).collect();
+        assert_eq!(kids, vec![a, b]);
+    }
+
+    #[test]
+    fn empty_rows_render_to_an_empty_body() {
+        // Zero rows is a perfectly valid page — the body has no
+        // children. Renderer should emit nothing.
+        let rows: Vec<ElementRow> = Vec::new();
+        let tree = Tree::from_db_rows(&rows).expect("empty page builds");
+        let body = tree.root();
+        assert_eq!(tree.children(body).count(), 0);
     }
 
     #[test]
@@ -332,8 +366,8 @@ mod tests {
             row(c, Some(r), Some(a), "textarea"), // dup: also claims prev=a
         ];
         let tree = Tree::from_db_rows(&rows).expect("should not error on dup prev_sibling");
-        let root_id = tree.root();
-        let kids: Vec<_> = tree.children(root_id).map(|(_, n)| n.uuid).collect();
+        let r_id = tree.get_by_uuid(r).unwrap();
+        let kids: Vec<_> = tree.children(r_id).map(|(_, n)| n.uuid).collect();
         assert_eq!(kids.len(), 3);
         assert_eq!(kids[0], a, "head must be `a` (prev=None)");
         // `b` and `c` both claimed prev=a — one wins the chain, the other
@@ -353,7 +387,8 @@ mod tests {
             text: None,
         }];
         let tree = Tree::from_db_rows(&rows).unwrap();
-        let attrs = &tree.get(tree.root()).unwrap().attrs;
+        let r_id = tree.get_by_uuid(r).unwrap();
+        let attrs = &tree.get(r_id).unwrap().attrs;
         assert_eq!(attrs.len(), 2);
     }
 }
