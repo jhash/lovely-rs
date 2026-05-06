@@ -222,6 +222,16 @@ pub async fn post_app_delete(
         ));
     }
     delete_app(&state.pg, app.id).await?;
+    // Drop the per-app SQLite file too. Best-effort — Postgres is the
+    // source of truth and the file is reconstructible from the intent
+    // log if anything depends on it later.
+    if let Err(e) = state.app_store.delete_app(app.id).await {
+        tracing::warn!(
+            error = %e,
+            app_id = %app.id,
+            "failed to remove per-app sqlite file after app delete"
+        );
+    }
     Ok(Redirect::to("/apps").into_response())
 }
 
