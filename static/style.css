@@ -125,6 +125,7 @@ a:visited {
 nav.top-nav {
   background: var(--paper);
   font-size: 0.85rem;
+  border-bottom: 1px solid var(--soft-border);
 }
 nav.top-nav .container {
   display: flex;
@@ -140,9 +141,6 @@ nav.top-nav .container {
 nav.top-nav .container.fullwidth {
   max-width: none;
   margin: 0;
-}
-nav.top-nav.top-nav-fullwidth {
-  border-bottom: 1px solid var(--soft-border);
 }
 nav.top-nav .brand {
   font-weight: 700;
@@ -674,7 +672,6 @@ body.public {
   min-height: 100vh;
 }
 body.public > :not(.owner-edit-badge) {
-  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
 }
@@ -815,9 +812,6 @@ body.builder .builder-canvas .preview-canvas {
      element stretches to fill the canvas. */
   display: flex;
   flex-direction: column;
-}
-body.builder .builder-canvas .preview-canvas > :first-child {
-  flex: 1 1 auto;
 }
 /* Full-canvas click target — clicking the gray padding around the
    preview canvas selects the page in the inspector. Sits behind the
