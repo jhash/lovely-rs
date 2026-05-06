@@ -385,12 +385,16 @@ pub async fn post_record_create(
         .await?
         .ok_or(WebError::NotFound)?;
     let mut data = serde_json::Map::new();
+    let mut mirror_fields: Vec<(String, String)> = Vec::new();
     for f in coll.fields() {
         if let Some(v) = form.get(&f) {
-            data.insert(f, serde_json::Value::String(v.clone()));
+            data.insert(f.clone(), serde_json::Value::String(v.clone()));
+            mirror_fields.push((f, v.clone()));
         }
     }
-    insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    let inserted =
+        insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    mirror_record_insert(&state, app.id, &coll.name, inserted.id, &mirror_fields).await;
     Ok(Redirect::to(&format!("/apps/{}/data/{}", app.slug, coll.name)).into_response())
 }
 
@@ -464,12 +468,16 @@ pub async fn post_public_submit(
     let csrf_in = form.get("_csrf").map(|s| s.as_str());
     csrf::verify_token(cookie_token.as_deref().unwrap_or(""), csrf_in)?;
     let mut data = serde_json::Map::new();
+    let mut mirror_fields: Vec<(String, String)> = Vec::new();
     for f in coll.fields() {
         if let Some(v) = form.get(&f) {
-            data.insert(f, serde_json::Value::String(v.clone()));
+            data.insert(f.clone(), serde_json::Value::String(v.clone()));
+            mirror_fields.push((f, v.clone()));
         }
     }
-    insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    let inserted =
+        insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
+    mirror_record_insert(&state, app.id, &coll.name, inserted.id, &mirror_fields).await;
     let redirect = if real_slug.is_empty() {
         format!("/{username}")
     } else {
@@ -482,3 +490,62 @@ pub async fn post_public_submit(
 /// rules `Identifier::new` enforces.
 const IDENT_HELP: &str =
     "name must be 1–63 chars; lowercase letters, digits, underscores; not a SQL keyword";
+
+/// Mirror a record insert into the per-app SQLite database. Best-effort:
+/// any failure is logged and swallowed so the user-facing flow still
+/// succeeds — Postgres remains the source of truth until we cut over.
+async fn mirror_record_insert(
+    state: &AppState,
+    app_id: uuid::Uuid,
+    collection_name: &str,
+    record_id: uuid::Uuid,
+    fields: &[(String, String)],
+) {
+    if let Err(e) = mirror_record_insert_inner(state, app_id, collection_name, record_id, fields)
+        .await
+    {
+        tracing::warn!(
+            error = %e,
+            app_id = %app_id,
+            collection = %collection_name,
+            "sqlite mirror insert failed; continuing with Postgres-only write"
+        );
+    }
+}
+
+async fn mirror_record_insert_inner(
+    state: &AppState,
+    app_id: uuid::Uuid,
+    collection_name: &str,
+    record_id: uuid::Uuid,
+    fields: &[(String, String)],
+) -> anyhow::Result<()> {
+    // Re-validate names defensively — they should already be valid since
+    // the create-time path used Identifier::new, but we want to refuse
+    // to splat anything raw into the SQL string.
+    let table = Identifier::new(collection_name)
+        .map_err(|_| anyhow::anyhow!("invalid table name {collection_name}"))?;
+    let cols: Vec<(Identifier, &str)> = fields
+        .iter()
+        .filter_map(|(k, v)| Identifier::new(k.as_str()).ok().map(|id| (id, v.as_str())))
+        .collect();
+    let pool = state.app_store.get_pool(app_id).await?;
+    let mut col_list = String::from("\"id\"");
+    let mut placeholders = String::from("?");
+    for (c, _) in &cols {
+        col_list.push_str(", \"");
+        col_list.push_str(c.as_str());
+        col_list.push('"');
+        placeholders.push_str(", ?");
+    }
+    let sql = format!(
+        "INSERT INTO \"{table}\" ({col_list}) VALUES ({placeholders})",
+        table = table.as_str()
+    );
+    let mut q = sqlx::query(&sql).bind(record_id.to_string());
+    for (_, v) in &cols {
+        q = q.bind(*v);
+    }
+    q.execute(&pool).await?;
+    Ok(())
+}

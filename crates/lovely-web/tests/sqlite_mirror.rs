@@ -107,6 +107,63 @@ async fn add_field_records_add_column_intent() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
+async fn record_insert_mirrors_into_sqlite() {
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+
+    // Create a collection with one field, then insert a record.
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/fields", app.url))
+        .form(&[("name", "title"), ("type", "text"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let r = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/records", app.url))
+        .form(&[("title", "hello sqlite"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_redirection(), "{}", r.status());
+
+    // Postgres should have one record with the title.
+    let pg_count: (i64,) = sqlx::query_as("SELECT count(*) FROM records")
+        .fetch_one(&app.pg)
+        .await
+        .unwrap();
+    assert_eq!(pg_count.0, 1);
+
+    // The per-app SQLite should also have one row in posts. Open the
+    // file the server is already writing to (WAL → safe for concurrent
+    // readers) and confirm the value made it across.
+    let app_uuid = app_id(&app, "alice", "personal").await;
+    let path = app.data_dir.path().join(format!("{app_uuid}.sqlite"));
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", path.display()))
+        .await
+        .unwrap();
+    let title: String = sqlx::query_scalar("SELECT title FROM posts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(title, "hello sqlite");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
 async fn collection_with_invalid_name_is_rejected() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
