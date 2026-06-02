@@ -1,0 +1,54 @@
+name: Build, Push, and Deploy lovely-rs
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx (persistent)
+        uses: docker/setup-buildx-action@v3
+        with:
+          name: lovelyrsbuilder
+          driver: docker-container
+          use: true
+          cleanup: false
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Ensure build cache dir exists
+        run: |
+          mkdir -p /home/jakehash/.cache/buildx/lovely-rs
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          builder: lovelyrsbuilder
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            jhash14/lovely-rs:latest
+            jhash14/lovely-rs:${{ github.sha }}
+          cache-from: type=local,src=/home/jakehash/.cache/buildx/lovely-rs
+          cache-to: type=local,dest=/home/jakehash/.cache/buildx/lovely-rs-new,mode=max
+
+      - name: Rotate build cache
+        run: |
+          rm -rf /home/jakehash/.cache/buildx/lovely-rs
+          mv /home/jakehash/.cache/buildx/lovely-rs-new /home/jakehash/.cache/buildx/lovely-rs
+
