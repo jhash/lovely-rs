@@ -668,9 +668,15 @@ fn content_tab(_ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     }
 }
 
-/// "Data" tab for non-text elements: write source for input-like,
-/// read bind for everything, and repeat for non-leaves. Hidden when
-/// the app has no collections.
+/// "Data" tab for non-text elements.
+///
+/// Three sub-sections, each conditional on element type:
+///   - `<form>` → "Collect submissions" picker (sets data-lovely-collection)
+///   - `<input>/<textarea>/<select>` → "Collect value" field picker (sets
+///     data-lovely-field; only meaningful when an ancestor `<form>` has
+///     a collection chosen)
+///   - everything → Read binding section
+///   - non-leaves → Repeat per record section
 fn data_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
     let edit_segment = page_segment(&ctx.page.slug);
     let bind = row
@@ -679,17 +685,12 @@ fn data_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let (bind_coll, bind_field) = split_ref(bind);
-    let source = row
-        .attrs_json
-        .get("data-lovely-source")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let (src_coll, src_field) = split_ref(source);
     let repeat = row
         .attrs_json
         .get("data-lovely-repeat")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let is_form = row.tag == "form";
     let is_input_like = matches!(row.tag.as_str(), "input" | "textarea" | "select");
     let is_leaf = ElementTag::from_name(&row.tag)
         .map(|t| t.is_leaf())
@@ -699,12 +700,11 @@ fn data_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
         ctx.app.slug, edit_segment, row.id
     );
     html! {
+        @if is_form {
+            (form_collection_section(ctx, &patch_url, row))
+        }
         @if is_input_like {
-            (data_ref_section(
-                ctx, &patch_url,
-                DataDirection::Write,
-                source, src_coll, src_field,
-            ))
+            (field_picker_section(ctx, &patch_url, row))
         }
         (data_ref_section(
             ctx, &patch_url,
@@ -715,6 +715,126 @@ fn data_tab(ctx: &BuilderCtx<'_>, row: &ElementRow) -> Markup {
             (repeat_section(ctx, &patch_url, repeat))
         }
     }
+}
+
+/// Form-element-only section: pick the collection that this form
+/// writes records into. Stored as `data-lovely-collection` on the form.
+/// Once set, descendant inputs can pick a Field to map into.
+fn form_collection_section(ctx: &BuilderCtx<'_>, patch_url: &str, row: &ElementRow) -> Markup {
+    let current = row
+        .attrs_json
+        .get("data-lovely-collection")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    html! {
+        div .data-binding {
+            h3 { "Collect submissions" }
+            p .muted {
+                "Pick the collection this form writes to. The form will be "
+                "wired to POST a new record on submit, with descendant "
+                "inputs mapped to the collection's fields."
+            }
+            form
+                hx-patch=(patch_url)
+                hx-swap="none"
+                hx-trigger="change"
+                .inspector-form {
+                input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                label {
+                    "Collection"
+                    select name="collect_collection" {
+                        option value="" { "(none)" }
+                        @for c in ctx.collections {
+                            option value=(c.name) selected[c.name == current] { (c.name) }
+                        }
+                    }
+                }
+            }
+            @if !current.is_empty() {
+                p .muted {
+                    "Submissions go to "
+                    code { (current) }
+                    "."
+                }
+            }
+        }
+    }
+}
+
+/// Input-element-only section: pick which field of the form's
+/// collection this input writes into. If no ancestor `<form>` has a
+/// collection set yet, this section shows guidance instead of pickers.
+fn field_picker_section(ctx: &BuilderCtx<'_>, patch_url: &str, row: &ElementRow) -> Markup {
+    let current_field = row
+        .attrs_json
+        .get("data-lovely-field")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let form_collection = nearest_form_collection(ctx.elements, row.id.into_inner());
+    html! {
+        div .data-binding {
+            h3 { "Collect value" }
+            @match form_collection.as_deref() {
+                None => {
+                    p .muted {
+                        "Wrap this input in a "
+                        code { "<form>" }
+                        " element, then choose a collection on the form, "
+                        "to start collecting submissions."
+                    }
+                }
+                Some(coll_name) => {
+                    p .muted {
+                        "Submissions go to "
+                        code { (coll_name) }
+                        ". Pick which field this input writes into."
+                    }
+                    @let active_coll = ctx.collections.iter().find(|c| c.name == coll_name);
+                    @let fields: Vec<String> = active_coll
+                        .map(|c| c.fields()).unwrap_or_default();
+                    form
+                        hx-patch=(patch_url)
+                        hx-swap="none"
+                        hx-trigger="change"
+                        .inspector-form {
+                        input type="hidden" name="_csrf" value=(ctx.csrf_token);
+                        label {
+                            "Field"
+                            select name="collect_field" {
+                                option value="" { "(none)" }
+                                @for f in &fields {
+                                    option value=(f) selected[f == current_field] { (f) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Walk up the parent chain from `start_id` looking for a `<form>`
+/// element whose `data-lovely-collection` attr is set. Returns the
+/// collection name when found.
+fn nearest_form_collection(rows: &[ElementRow], start_id: Uuid) -> Option<String> {
+    use std::collections::HashMap;
+    let by_id: HashMap<Uuid, &ElementRow> = rows.iter().map(|r| (r.id.into_inner(), r)).collect();
+    let mut cur = by_id.get(&start_id).and_then(|r| r.parent_id);
+    while let Some(pid) = cur {
+        let pid_inner = pid.into_inner();
+        let row = by_id.get(&pid_inner)?;
+        if row.tag == "form" {
+            return row
+                .attrs_json
+                .get("data-lovely-collection")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+        }
+        cur = row.parent_id;
+    }
+    None
 }
 
 /// "Repeat per record" inspector section. Pick a collection and the
@@ -774,57 +894,29 @@ fn split_ref(value: &str) -> (&str, &str) {
 #[derive(Copy, Clone)]
 enum DataDirection {
     Read,
-    Write,
-}
-
-impl DataDirection {
-    fn heading(self) -> &'static str {
-        match self {
-            DataDirection::Read => "Display value (read from data)",
-            DataDirection::Write => "Collect value (write into data)",
-        }
-    }
-    fn helper(self) -> &'static str {
-        match self {
-            DataDirection::Read => {
-                "Pick a collection to make its records available to this \
-                 element. The optional field directly populates this \
-                 element's text — leave it blank to use {{collection.field}} \
-                 interpolation in #text children, repeat templates, or \
-                 dynamic attributes instead."
-            }
-            DataDirection::Write => {
-                "On form submit, this input writes its value into a new \
-                 record's field."
-            }
-        }
-    }
-    fn coll_field(self) -> (&'static str, &'static str) {
-        match self {
-            DataDirection::Read => ("binding_collection", "binding_field"),
-            DataDirection::Write => ("source_collection", "source_field"),
-        }
-    }
-    fn field_optional(self) -> bool {
-        matches!(self, DataDirection::Read)
-    }
 }
 
 fn data_ref_section(
     ctx: &BuilderCtx<'_>,
     patch_url: &str,
-    dir: DataDirection,
+    _dir: DataDirection,
     current: &str,
     current_coll: &str,
     current_field: &str,
 ) -> Markup {
-    let (coll_name, field_name) = dir.coll_field();
     let active_coll = ctx.collections.iter().find(|c| c.name == current_coll);
     let coll_fields: Vec<String> = active_coll.map(|c| c.fields()).unwrap_or_default();
     html! {
         div .data-binding {
-            h3 { (dir.heading()) }
-            p .muted { (dir.helper()) }
+            h3 { "Display value (read from data)" }
+            p .muted {
+                "Pick a collection to make its records available to this "
+                "element. The optional field directly populates this "
+                "element's text — leave it blank to use "
+                code { "{{collection.field}}" }
+                " interpolation in #text children, repeat templates, or "
+                "dynamic attributes instead."
+            }
             form
                 hx-patch=(patch_url)
                 hx-swap="none"
@@ -833,7 +925,7 @@ fn data_ref_section(
                 input type="hidden" name="_csrf" value=(ctx.csrf_token);
                 label {
                     "Collection"
-                    select name=(coll_name) {
+                    select name="binding_collection" {
                         option value="" { "(none)" }
                         @for c in ctx.collections {
                             option value=(c.name) selected[c.name == current_coll] { (c.name) }
@@ -841,16 +933,9 @@ fn data_ref_section(
                     }
                 }
                 label {
-                    @if dir.field_optional() {
-                        "Field (optional — direct value display)"
-                    } @else {
-                        "Field"
-                    }
-                    select name=(field_name)
-                        disabled[active_coll.is_none()] {
-                        option value="" {
-                            @if dir.field_optional() { "(none)" } @else { "(pick a field)" }
-                        }
+                    "Field (optional — direct value display)"
+                    select name="binding_field" disabled[active_coll.is_none()] {
+                        option value="" { "(none)" }
                         @for f in &coll_fields {
                             option value=(f) selected[f == current_field] { (f) }
                         }
@@ -865,8 +950,8 @@ fn data_ref_section(
                         hx-swap="none"
                         .inline-form {
                         input type="hidden" name="_csrf" value=(ctx.csrf_token);
-                        input type="hidden" name=(coll_name) value="";
-                        input type="hidden" name=(field_name) value="";
+                        input type="hidden" name="binding_collection" value="";
+                        input type="hidden" name="binding_field" value="";
                         button type="submit" .danger { "Disconnect" }
                     }
                 }

@@ -9,6 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Form;
 use axum_extra::extract::cookie::CookieJar;
+use axum_htmx::HxRequest;
 use lovely_db::intent::{ColumnSpec, Identifier, Intent};
 use lovely_db::{
     create_collection, delete_collection, find_app_by_owner_and_slug, find_collection_by_name,
@@ -436,14 +437,17 @@ pub async fn post_record_delete(
     Ok(Redirect::to(&format!("/apps/{}/data/{}", app.slug, coll.name)).into_response())
 }
 
-/// Public form-submit endpoint: anyone can post to a published page's
-/// form to create a record. Owner gates writes via the `bind_collection`
-/// data attribute the form was rendered with — the path itself enforces
-/// the collection name.
+/// Public form-submit endpoint: anyone can POST to a published page's
+/// form to create a record. The path enforces the collection name.
+///
+/// htmx requests get back a small "Thanks" fragment intended to swap
+/// the form via `outerHTML`. Plain browser requests get a 303 back to
+/// the page (so refresh doesn't re-submit).
 pub async fn post_public_submit(
     State(state): State<AppState>,
     MaybeUser(_viewer): MaybeUser,
     Path((username, slug, coll_name)): Path<(String, String, String)>,
+    HxRequest(is_htmx): HxRequest,
     jar: CookieJar,
     Form(form): Form<std::collections::HashMap<String, String>>,
 ) -> Result<Response, WebError> {
@@ -478,6 +482,15 @@ pub async fn post_public_submit(
     }
     let inserted = insert_record(&state.pg, coll.id, serde_json::Value::Object(data)).await?;
     mirror_record_insert(&state, app.id, &coll.name, inserted.id, &mirror_fields).await;
+
+    if is_htmx {
+        let thanks = maud::html! {
+            div .lovely-thanks role="status" {
+                "Thanks — your submission was recorded."
+            }
+        };
+        return Ok((StatusCode::OK, thanks).into_response());
+    }
     let redirect = if real_slug.is_empty() {
         format!("/{username}")
     } else {

@@ -23,6 +23,39 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+/// Pull the working attrs object: prefer the in-flight patch if set,
+/// otherwise read the row's current attrs. Returns a mutable map the
+/// caller can insert/remove on. The returned reference is bound to the
+/// `Option<Value>` it lives inside — caller is responsible for putting
+/// the result back into `patch.attrs` after edits.
+async fn ensure_attrs_obj<'a>(
+    pg: &sqlx::PgPool,
+    element_id: Uuid,
+    patch_attrs: &'a mut Option<serde_json::Value>,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, WebError> {
+    if patch_attrs.is_none() {
+        let current: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
+                .bind(element_id)
+                .fetch_optional(pg)
+                .await
+                .map_err(lovely_db::DbError::Sqlx)?;
+        *patch_attrs = match current {
+            Some(serde_json::Value::Object(_)) => current,
+            _ => Some(serde_json::Value::Object(serde_json::Map::new())),
+        };
+    }
+    let v = patch_attrs.as_mut().expect("seeded above");
+    if !matches!(v, serde_json::Value::Object(_)) {
+        *v = serde_json::Value::Object(serde_json::Map::new());
+    }
+    if let serde_json::Value::Object(m) = v {
+        Ok(m)
+    } else {
+        unreachable!("forced object above")
+    }
+}
+
 #[derive(Deserialize, Default)]
 pub struct SelTabQuery {
     #[serde(default)]
@@ -155,14 +188,15 @@ pub struct PatchElementForm {
     /// collection. Stored as `data-lovely-repeat=<collection>`.
     #[serde(default)]
     pub repeat_collection: Option<String>,
-    /// Mark this element as a data SOURCE — its submitted value gets
-    /// written to `{collection}.{field}` when the parent form submits.
-    /// Counterpart to `binding_*`, which is for READ. Stored as
-    /// `data-lovely-source` attribute.
+    /// Form-only: collection this `<form>` writes records into.
+    /// Stored as `data-lovely-collection`. The render-time auto-wire
+    /// pass turns the form into an htmx submit endpoint when set.
     #[serde(default)]
-    pub source_collection: Option<String>,
+    pub collect_collection: Option<String>,
+    /// Input-only: field within the ancestor form's collection that
+    /// this input writes into. Stored as `data-lovely-field`.
     #[serde(default)]
-    pub source_field: Option<String>,
+    pub collect_field: Option<String>,
     #[serde(default)]
     pub _csrf: Option<String>,
 }
@@ -293,39 +327,32 @@ pub async fn patch_element(
         patch.attrs = Some(serde_json::Value::Object(merged));
     }
 
-    // Apply data-source update if present. Stored as `data-lovely-source` attr.
-    if let Some(coll) = form.source_collection.as_deref() {
-        let field = form.source_field.as_deref().unwrap_or("");
-        let value = if coll.is_empty() {
-            String::new()
-        } else {
-            format!("{coll}.{field}")
-        };
-        let merged = match patch.attrs.take() {
-            Some(serde_json::Value::Object(o)) => o,
-            _ => {
-                let current: Option<serde_json::Value> =
-                    sqlx::query_scalar("SELECT attrs FROM elements WHERE id = $1")
-                        .bind(element_id)
-                        .fetch_optional(&state.pg)
-                        .await
-                        .map_err(lovely_db::DbError::Sqlx)?;
-                match current {
-                    Some(serde_json::Value::Object(o)) => o,
-                    _ => serde_json::Map::new(),
-                }
-            }
-        };
-        let mut merged = merged;
-        if value.is_empty() {
-            merged.remove("data-lovely-source");
+    // Form-only: pick the collection to collect submissions into.
+    // Stored as `data-lovely-collection`; auto-wire turns this form
+    // into a record-creation endpoint at render time.
+    if let Some(coll) = form.collect_collection.as_deref() {
+        let merged = ensure_attrs_obj(&state.pg, element_id, &mut patch.attrs).await?;
+        if coll.is_empty() {
+            merged.remove("data-lovely-collection");
         } else {
             merged.insert(
-                "data-lovely-source".to_string(),
-                serde_json::Value::String(value),
+                "data-lovely-collection".to_string(),
+                serde_json::Value::String(coll.to_string()),
             );
         }
-        patch.attrs = Some(serde_json::Value::Object(merged));
+    }
+    // Input-only: pick which field of the ancestor form's collection
+    // this input writes into. Stored as `data-lovely-field`.
+    if let Some(field_name) = form.collect_field.as_deref() {
+        let merged = ensure_attrs_obj(&state.pg, element_id, &mut patch.attrs).await?;
+        if field_name.is_empty() {
+            merged.remove("data-lovely-field");
+        } else {
+            merged.insert(
+                "data-lovely-field".to_string(),
+                serde_json::Value::String(field_name.to_string()),
+            );
+        }
     }
 
     // Apply binding update if present. Stored as `data-lovely-bind` attr.

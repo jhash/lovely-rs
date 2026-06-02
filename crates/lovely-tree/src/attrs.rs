@@ -8,7 +8,27 @@ use smol_str::SmolStr;
 pub struct AttrName(SmolStr);
 
 impl AttrName {
+    /// Strict validator used at the user-input boundary (PATCH, form
+    /// fields). Rejects `on*` event handlers and `hx-*` (htmx is
+    /// server-controlled — see `from_server_trusted` for the inverse).
     pub fn new(s: &str) -> Result<Self, TreeError> {
+        let valid = Self::from_server_trusted(s)?;
+        let lower = valid.0.to_ascii_lowercase();
+        if lower.starts_with("on") || lower.starts_with("hx-") {
+            return Err(TreeError::InvalidAttribute(s.into()));
+        }
+        Ok(valid)
+    }
+
+    /// Permissive validator for attributes the server itself injects
+    /// (auto-wired form attrs like `hx-post`). Validates the
+    /// HTML-grammar character set + length, but skips the `on*` /
+    /// `hx-*` denylist that protects user input.
+    ///
+    /// MUST NOT be used on attribute names sourced from request bodies
+    /// or persisted user data — only inside server-controlled passes
+    /// that derive their values from app state.
+    pub fn from_server_trusted(s: &str) -> Result<Self, TreeError> {
         if s.is_empty() || s.len() > 64 {
             return Err(TreeError::InvalidAttribute(s.into()));
         }
@@ -21,10 +41,6 @@ impl AttrName {
             if !(c.is_ascii_alphanumeric() || c == '-' || c == '_') {
                 return Err(TreeError::InvalidAttribute(s.into()));
             }
-        }
-        let lower = s.to_ascii_lowercase();
-        if lower.starts_with("on") || lower.starts_with("hx-") {
-            return Err(TreeError::InvalidAttribute(s.into()));
         }
         Ok(Self(SmolStr::new(s)))
     }

@@ -160,7 +160,12 @@ fn parse_attrs(json: &serde_json::Value) -> Result<Option<AttrList>, TreeError> 
         .ok_or_else(|| TreeError::MalformedRow(format!("attrs not an object: {json}")))?;
     let mut list = AttrList::new();
     for (k, v) in obj {
-        let name = AttrName::new(k)?;
+        // Build-time row parse trusts what's already in the row map:
+        // user-supplied names were vetted by `AttrName::new` at PATCH
+        // time, while server-injected names (`hx-post`, etc.) come from
+        // post-load passes like `auto_wire_forms`. The permissive
+        // validator still enforces grammar + length.
+        let name = AttrName::from_server_trusted(k)?;
         let value = match v {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Bool(b) => b.to_string(),

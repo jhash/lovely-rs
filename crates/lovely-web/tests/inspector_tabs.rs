@@ -99,6 +99,160 @@ async fn non_text_element_has_no_content_tab() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
+async fn input_without_form_ancestor_shows_form_required_guidance() {
+    // The "Collect value" section on an input only renders pickers when
+    // an ancestor `<form>` has chosen a collection. Bare input (no form
+    // ancestor) sees a help message instead.
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/fields", app.url))
+        .form(&[("name", "title"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+
+    let root = home_root(&app).await;
+    let input_id = add_child(&app, root, "input").await;
+
+    let r = app
+        .client
+        .get(format!(
+            "{}/apps/personal/pages/~home/inspector?sel={input_id}&tab=data",
+            app.url
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body = r.text().await.unwrap();
+    assert!(
+        body.contains("Wrap this input in a"),
+        "input without form ancestor should show form-required guidance: {body}"
+    );
+    // No field picker.
+    assert!(
+        !body.contains(r#"name="collect_field""#),
+        "no field picker should render without a form ancestor: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn input_inside_form_with_collection_shows_field_picker() {
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data/posts/fields", app.url))
+        .form(&[("name", "title"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+
+    let root = home_root(&app).await;
+    let form_id = add_child(&app, root, "form").await;
+    let input_id = add_child(&app, form_id, "input").await;
+    // Mark the form as collecting into posts.
+    let token = app.csrf_token().await.unwrap();
+    let r = app
+        .client
+        .patch(format!(
+            "{}/apps/personal/pages/~home/elements/{form_id}",
+            app.url
+        ))
+        .form(&[("collect_collection", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    let r = app
+        .client
+        .get(format!(
+            "{}/apps/personal/pages/~home/inspector?sel={input_id}&tab=data",
+            app.url
+        ))
+        .send()
+        .await
+        .unwrap();
+    let body = r.text().await.unwrap();
+    assert!(
+        body.contains(r#"name="collect_field""#),
+        "field picker should render once the form has a collection: {body}"
+    );
+    // The collection name is named in the muted helper line.
+    assert!(
+        body.contains("posts"),
+        "field section should reference the form's collection: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn form_inspector_offers_collect_collection_picker() {
+    let pg = PgTestContainer::start().await.unwrap();
+    let pool = pg.fresh_db().await.unwrap();
+    let app = TestApp::start_with_pool(pool).await.unwrap();
+    register(&app, "alice").await.unwrap();
+    let token = app.csrf_token().await.unwrap();
+    let _ = app
+        .client
+        .post(format!("{}/apps/personal/data", app.url))
+        .form(&[("name", "posts"), ("_csrf", &token)])
+        .send()
+        .await
+        .unwrap();
+
+    let root = home_root(&app).await;
+    let form_id = add_child(&app, root, "form").await;
+
+    let r = app
+        .client
+        .get(format!(
+            "{}/apps/personal/pages/~home/inspector?sel={form_id}&tab=data",
+            app.url
+        ))
+        .send()
+        .await
+        .unwrap();
+    let body = r.text().await.unwrap();
+    assert!(
+        body.contains(r#"name="collect_collection""#),
+        "form should offer a collect_collection picker: {body}"
+    );
+    // Collect_field belongs to inputs; it must NOT show on a form.
+    assert!(
+        !body.contains(r#"name="collect_field""#),
+        "form must not expose the input-only field picker: {body}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
 async fn text_element_hides_attributes_and_style_tabs() {
     let pg = PgTestContainer::start().await.unwrap();
     let pool = pg.fresh_db().await.unwrap();
