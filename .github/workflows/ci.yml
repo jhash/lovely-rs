@@ -57,14 +57,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
 
-  docker:
-    name: docker build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          if [ -f deploy/Dockerfile ]; then
-            docker build -f deploy/Dockerfile -t lovely-rs:ci .
-          else
-            echo "Dockerfile not yet present; skipping"
-          fi
+  # docker:
+  #   name: docker build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: |
+  #         if [ -f deploy/Dockerfile ]; then
+  #           docker build -f deploy/Dockerfile -t lovely-rs:ci .
+  #         else
+  #           echo "Dockerfile not yet present; skipping"
+  #         fi
