@@ -9,7 +9,7 @@ COPY crates/ ./crates/
 RUN cargo chef prepare --recipe-path recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --bin lovely-server
 COPY . .
-RUN cargo build --release --bin lovely-server
+RUN cargo build --jobs 1 --release --bin lovely-server
 
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
