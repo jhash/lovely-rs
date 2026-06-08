@@ -7,10 +7,6 @@ on:
 jobs:
   build:
     runs-on: self-hosted
-    container:
-      resources:
-        limits:
-          cpus: 4
 
     steps:
       - name: Checkout
