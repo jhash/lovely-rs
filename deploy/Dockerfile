@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY rust-toolchain.toml ./
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
+COPY migrations/ ./migrations/
 RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --jobs 1 --release --bin lovely-server && \
