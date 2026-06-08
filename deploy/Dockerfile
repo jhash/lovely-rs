@@ -2,17 +2,9 @@ FROM rust:slim AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN cargo install cargo-chef --locked
 COPY rust-toolchain.toml ./
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-RUN cargo chef prepare --recipe-path recipe.json
-RUN --mount=type=cache,target=/build/target \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo chef cook --release --recipe-path recipe.json
-
-COPY . .
-
 RUN --mount=type=cache,target=/build/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --jobs 1 --release --bin lovely-server && \
