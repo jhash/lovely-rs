@@ -7,14 +7,21 @@ COPY rust-toolchain.toml ./
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
 RUN cargo chef prepare --recipe-path recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json --bin lovely-server
+RUN --mount=type=cache,target=/build/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo chef cook --release --recipe-path recipe.json --bin lovely-server
+
 COPY . .
-RUN cargo build --jobs 1 --release --bin lovely-server
+
+RUN --mount=type=cache,target=/build/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --jobs 1 --release --bin lovely-server && \
+    cp /build/target/release/lovely-server /tmp/lovely-server
 
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /build/target/release/lovely-server /usr/local/bin/lovely-server
+COPY --from=builder /tmp/lovely-server /usr/local/bin/lovely-server
 COPY static/ /opt/lovely/static/
 COPY deploy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
