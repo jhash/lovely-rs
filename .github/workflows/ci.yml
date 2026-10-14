@@ -12,7 +12,7 @@ env:
 jobs:
   fmt:
     name: cargo fmt
-    runs-on: ubuntu-latest
+    runs-on: lovely-rs-amd64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,9 +22,11 @@ jobs:
 
   clippy:
     name: cargo clippy
-    runs-on: ubuntu-latest
+    runs-on: lovely-rs-amd64
     steps:
       - uses: actions/checkout@v4
+      - name: Install a C toolchain on the self-hosted runner
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends build-essential pkg-config libssl-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -33,33 +35,34 @@ jobs:
 
   test:
     name: cargo test
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    runs-on: lovely-rs-amd64
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       SQLX_OFFLINE: "true"
     steps:
       - uses: actions/checkout@v4
+      - name: Install a C toolchain on the self-hosted runner
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends build-essential pkg-config libssl-dev
+      - name: Start Postgres 17 on the self-hosted runner
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSLo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-17
+          sudo pg_ctlcluster 17 main start
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres'"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
 
   # docker:
   #   name: docker build
-  #   runs-on: ubuntu-latest
+  #   runs-on: lovely-rs-amd64
   #   steps:
   #     - uses: actions/checkout@v4
   #     - run: |
